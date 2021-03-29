@@ -14,6 +14,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Deployment Repo
+DEPLOY_REPO=https://github.com/GoogleCloudPlatform/bigquery-utils.git
 # Directory of the UDFs
 UDF_DIR=udfs
 
@@ -130,7 +132,7 @@ function build_udfs() {
   # Delete test datasets when finished
   if ! gcloud builds submit "${UDF_DIR}"/ \
     --config="${UDF_DIR}"/cloudbuild.yaml \
-    --substitutions _JS_BUCKET="${_JS_BUCKET}",SHORT_SHA="${SHORT_SHA}" ; then
+    --substitutions _JS_BUCKET="${_JS_BUCKET}",SHORT_SHA="${SHORT_SHA}",_GCR_PROJECT_ID="${_GCR_PROJECT_ID}" ; then
     # Delete BigQuery UDF test datasets and cloud storage directory if above cloud build process fails
     printf "FAILURE: Build process for BigQuery UDFs failed, running cleanup steps:\n"
     local datasets
@@ -193,9 +195,9 @@ function build() {
 
   # Only build the Cloud Build image (used for testing UDFs)
   # if any files in the udfs/tests/ directory have changed.
-  if echo "${files_changed}" | grep -q "${UDF_DIR}"/tests/; then
-    build_udf_testing_image
-  fi
+#  if echo "${files_changed}" | grep -q "${UDF_DIR}"/tests/; then
+#    build_udf_testing_image
+#  fi
 
   # Only build the BigQuery UDFs if any files in the
   # udfs/ directory have been changed
@@ -242,7 +244,8 @@ function main() {
   # Only deploy UDFs when building master branch and there is
   # no associated pull request, meaning the PR was approved
   # and this is now building a commit on master branch.
-  if [[ "${BRANCH_NAME}" = "master" && -z "${_PR_NUMBER}" ]]; then
+  if [[ "${BRANCH_NAME}" = "master" && -z "${_PR_NUMBER}" && "${_REPO_URL}" = "${DEPLOY_REPO}" ]]; then
+    printf "BRANCH NAME: %s _PR_NUMBER: %s _REPO_URL: %s\n" "${BRANCH_NAME}" "${_PR_NUMBER}" "${_REPO_URL}"
     deploy_udfs
   else
     build
