@@ -17,6 +17,7 @@ import os
 import queue
 import time
 from typing import Optional
+from typing import List
 
 import pytest
 from google.cloud import bigquery
@@ -26,6 +27,7 @@ import gcs_ocn_bq_ingest.common.constants
 import gcs_ocn_bq_ingest.common.ordering
 import gcs_ocn_bq_ingest.common.utils
 import gcs_ocn_bq_ingest.main
+from tests import utils as test_utils
 
 TEST_DIR = os.path.realpath(os.path.dirname(__file__) + "/..")
 LOAD_JOB_POLLING_TIMEOUT = 20  # seconds
@@ -47,11 +49,11 @@ def test_backlog_publisher(gcs, gcs_bucket, gcs_partitioned_data, mock_env):
     created.
     Assert that that only one backfill file is not recreated.
     """
+    test_utils.check_blobs_exist(gcs_partitioned_data,
+                                 "test data objects must exist")
     table_prefix = ""
     # load each partition.
     for gcs_data in gcs_partitioned_data:
-        if not gcs_data.exists():
-            raise EnvironmentError("test data objects must exist")
         if gcs_data.name.endswith(
                 gcs_ocn_bq_ingest.common.constants.SUCCESS_FILENAME):
             table_prefix = gcs_ocn_bq_ingest.common.utils.get_table_prefix(
@@ -88,6 +90,8 @@ def test_backlog_publisher_with_existing_backfill_file(gcs, gcs_bucket,
     """Test basic functionality of backlog_publisher when the backfill is
     already running. It should not repost this backfill file.
     """
+    test_utils.check_blobs_exist(gcs_partitioned_data,
+                                 "test data objects must exist")
     table_prefix = "/".join(
         [dest_dataset.dataset_id, dest_partitioned_table.table_id])
     backfill_blob: storage.Blob = gcs_bucket.blob(
@@ -99,8 +103,6 @@ def test_backlog_publisher_with_existing_backfill_file(gcs, gcs_bucket,
     table_prefix = ""
     # load each partition.
     for gcs_data in gcs_partitioned_data:
-        if not gcs_data.exists():
-            raise EnvironmentError("test data objects must exist")
         if gcs_data.name.endswith(
                 gcs_ocn_bq_ingest.common.constants.SUCCESS_FILENAME):
             table_prefix = gcs_ocn_bq_ingest.common.utils.get_table_prefix(
@@ -141,38 +143,49 @@ def test_backlog_subscriber_in_order_with_new_batch_after_exit(
     we will drop a 4th batch after the subscriber has exited and assert that it
     gets applied as expected.
     """
-    _run_subscriber(gcs, bq, gcs_external_update_config)
-    table_prefix = gcs_ocn_bq_ingest.common.utils.get_table_prefix(
-        gcs_external_update_config.name)
-    backlog_blobs = gcs_bucket.list_blobs(prefix=f"{table_prefix}/_backlog/")
-    assert backlog_blobs.num_results == 0, "backlog is not empty"
-    bqlock_blob: storage.Blob = gcs_bucket.blob("_bqlock")
-    assert not bqlock_blob.exists(), "_bqlock was not cleaned up"
-    rows = bq.query("SELECT alpha_update FROM "
-                    f"{dest_ordered_update_table.dataset_id}"
-                    f".{dest_ordered_update_table.table_id}")
-    expected_num_rows = 1
-    num_rows = 0
-    for row in rows:
-        num_rows += 1
-        assert row["alpha_update"] == "ABC", "backlog not applied in order"
-    assert num_rows == expected_num_rows
+    test_utils.check_blobs_exist(gcs_external_update_config,
+                                 "config objects must exist")
+    test_utils.check_blobs_exist(gcs_ordered_update_data,
+                                 "test data objects must exist")
+    for blob in gcs_external_update_config:
+        basename = os.path.basename(blob.name)
+        # Only perform the following actions for the backfill config file
+        if basename == gcs_ocn_bq_ingest.common.constants.BACKFILL_FILENAME:
+            _run_subscriber(gcs, bq, blob)
+            table_prefix = gcs_ocn_bq_ingest.common.utils.get_table_prefix(
+                blob.name)
+            backlog_blobs = gcs_bucket.list_blobs(
+                prefix=f"{table_prefix}/_backlog/")
+            assert backlog_blobs.num_results == 0, "backlog is not empty"
+            bqlock_blob: storage.Blob = gcs_bucket.blob("_bqlock")
+            assert not bqlock_blob.exists(), "_bqlock was not cleaned up"
+            rows = bq.query("SELECT alpha_update FROM "
+                            f"{dest_ordered_update_table.dataset_id}"
+                            f".{dest_ordered_update_table.table_id}")
+            expected_num_rows = 1
+            num_rows = 0
+            for row in rows:
+                num_rows += 1
+                assert row[
+                    "alpha_update"] == "ABC", "backlog not applied in order"
+            assert num_rows == expected_num_rows
 
-    # Now we will test what happens when the publisher posts another batch after
-    # the backlog subscriber has exited.
-    backfill_blob = _post_a_new_batch(gcs_bucket, dest_dataset,
-                                      dest_ordered_update_table)
-    _run_subscriber(gcs, bq, backfill_blob)
+            # Now we will test what happens when the publisher posts another batch after
+            # the backlog subscriber has exited.
+            backfill_blob = _post_a_new_batch(gcs_bucket, dest_dataset,
+                                              dest_ordered_update_table)
+            _run_subscriber(gcs, bq, backfill_blob)
 
-    rows = bq.query("SELECT alpha_update FROM "
-                    f"{dest_ordered_update_table.dataset_id}"
-                    f".{dest_ordered_update_table.table_id}")
-    expected_num_rows = 1
-    num_rows = 0
-    for row in rows:
-        num_rows += 1
-        assert row["alpha_update"] == "ABCD", "new incremental not applied"
-    assert num_rows == expected_num_rows
+            rows = bq.query("SELECT alpha_update FROM "
+                            f"{dest_ordered_update_table.dataset_id}"
+                            f".{dest_ordered_update_table.table_id}")
+            expected_num_rows = 1
+            num_rows = 0
+            for row in rows:
+                num_rows += 1
+                assert row[
+                    "alpha_update"] == "ABCD", "new incremental not applied"
+            assert num_rows == expected_num_rows
 
 
 @pytest.mark.IT
@@ -180,8 +193,9 @@ def test_backlog_subscriber_in_order_with_new_batch_after_exit(
 @pytest.mark.repeat(NUM_TRIES_SUBSCRIBER_TESTS)
 def test_backlog_subscriber_in_order_with_new_batch_while_running(
         bq, gcs, gcs_bucket, dest_dataset, dest_ordered_update_table,
-        gcs_ordered_update_data, gcs_external_update_config: storage.Blob,
-        gcs_backlog, mock_env):
+        gcs_ordered_update_data,
+        gcs_external_update_config: List[storage.blob.Blob], gcs_backlog,
+        mock_env):
     """Test functionality of backlog subscriber when new batches are added
     before the subscriber is done finishing the existing backlog.
 
@@ -189,62 +203,68 @@ def test_backlog_subscriber_in_order_with_new_batch_while_running(
     that these jobs were applied in order.
     In another process populate a fourth batch, and call the publisher.
     """
+    test_utils.check_blobs_exist(gcs_external_update_config,
+                                 "config objects must exist")
+    test_utils.check_blobs_exist(gcs_ordered_update_data,
+                                 "test data objects must exist")
     # Cannot pickle clients to another process so we need to recreate some
     # objects without the client property.
-    backfill_blob = storage.Blob.from_string(
-        f"gs://{gcs_external_update_config.bucket.name}/"
-        f"{gcs_external_update_config.name}")
-    dataset = bigquery.Dataset.from_string(
-        f"{dest_dataset.project}.{dest_dataset.dataset_id}")
-    table = bigquery.Table.from_string(
-        f"{dest_dataset.project}.{dest_dataset.dataset_id}."
-        f"{dest_ordered_update_table.table_id}")
-    bkt = storage.Bucket.from_string(f"gs://{gcs_bucket.name}")
+    for blob in gcs_external_update_config:
+        basename = os.path.basename(blob.name)
+        # Only perform the following actions for the backfill config file
+        if basename == gcs_ocn_bq_ingest.common.constants.BACKFILL_FILENAME:
+            backfill_blob = storage.Blob.from_string(f"gs://{blob.bucket.name}/"
+                                                     f"{blob.name}")
+            dataset = bigquery.Dataset(
+                f"{dest_dataset.project}.{dest_dataset.dataset_id}")
+            table = bigquery.Table(
+                f"{dest_dataset.project}.{dest_dataset.dataset_id}."
+                f"{dest_ordered_update_table.table_id}")
+            bkt = storage.Bucket(None, gcs_bucket.name)
+            claim_blob: storage.Blob = blob.bucket.blob(
+                blob.name.replace(
+                    basename, f"_claimed_{basename}_created_at_"
+                    f"{blob.time_created.timestamp()}"))
+            # Run subscriber w/ backlog and publisher w/ new batch in parallel.
+            with multiprocessing.Pool(processes=3) as pool:
+                res_subscriber = pool.apply_async(_run_subscriber,
+                                                  (None, None, backfill_blob))
+                # wait for existence of claim blob to ensure subscriber is running.
+                while not claim_blob.exists():
+                    pass
+                res_backlog_publisher = pool.apply_async(
+                    _post_a_new_batch, (bkt, dataset, table))
+                res_backlog_publisher.wait()
+                res_monitor = pool.apply_async(
+                    gcs_ocn_bq_ingest.common.ordering.subscriber_monitor,
+                    (None, bkt,
+                     f"{dataset.project}.{dataset.dataset_id}/{table.table_id}/"
+                     f"_backlog/04/_SUCCESS"))
 
-    basename = os.path.basename(gcs_external_update_config.name)
-    claim_blob: storage.Blob = gcs_external_update_config.bucket.blob(
-        gcs_external_update_config.name.replace(
-            basename, f"_claimed_{basename}_created_at_"
-            f"{gcs_external_update_config.time_created.timestamp()}"))
-    # Run subscriber w/ backlog and publisher w/ new batch in parallel.
-    with multiprocessing.Pool(processes=3) as pool:
-        res_subscriber = pool.apply_async(_run_subscriber,
-                                          (None, None, backfill_blob))
-        # wait for existence of claim blob to ensure subscriber is running.
-        while not claim_blob.exists():
-            pass
-        res_backlog_publisher = pool.apply_async(_post_a_new_batch,
-                                                 (bkt, dataset, table))
-        res_backlog_publisher.wait()
-        res_monitor = pool.apply_async(
-            gcs_ocn_bq_ingest.common.ordering.subscriber_monitor,
-            (None, bkt,
-             f"{dataset.project}.{dataset.dataset_id}/{table.table_id}/"
-             f"_backlog/04/_SUCCESS"))
+                if res_monitor.get():
+                    print("subscriber monitor had to retrigger subscriber loop")
+                    backfill_blob.reload(client=gcs)
+                    _run_subscriber(None, None, backfill_blob)
 
-        if res_monitor.get():
-            print("subscriber monitor had to retrigger subscriber loop")
-            backfill_blob.reload(client=gcs)
-            _run_subscriber(None, None, backfill_blob)
+                res_subscriber.wait()
 
-        res_subscriber.wait()
-
-    table_prefix = gcs_ocn_bq_ingest.common.utils.get_table_prefix(
-        gcs_external_update_config.name)
-    backlog_blobs = gcs_bucket.list_blobs(prefix=f"{table_prefix}/"
-                                          f"_backlog/")
-    assert backlog_blobs.num_results == 0, "backlog is not empty"
-    bqlock_blob: storage.Blob = gcs_bucket.blob("_bqlock")
-    assert not bqlock_blob.exists(), "_bqlock was not cleaned up"
-    rows = bq.query("SELECT alpha_update FROM "
-                    f"{dest_ordered_update_table.dataset_id}"
-                    f".{dest_ordered_update_table.table_id}")
-    expected_num_rows = 1
-    num_rows = 0
-    for row in rows:
-        num_rows += 1
-        assert row["alpha_update"] == "ABCD", "backlog not applied in order"
-    assert num_rows == expected_num_rows
+            table_prefix = gcs_ocn_bq_ingest.common.utils.get_table_prefix(
+                blob.name)
+            backlog_blobs = gcs_bucket.list_blobs(prefix=f"{table_prefix}/"
+                                                  f"_backlog/")
+            assert backlog_blobs.num_results == 0, "backlog is not empty"
+            bqlock_blob: storage.Blob = gcs_bucket.blob("_bqlock")
+            assert not bqlock_blob.exists(), "_bqlock was not cleaned up"
+            rows = bq.query("SELECT alpha_update FROM "
+                            f"{dest_ordered_update_table.dataset_id}"
+                            f".{dest_ordered_update_table.table_id}")
+            expected_num_rows = 1
+            num_rows = 0
+            for row in rows:
+                num_rows += 1
+                assert row[
+                    "alpha_update"] == "ABCD", "backlog not applied in order"
+            assert num_rows == expected_num_rows
 
 
 def _run_subscriber(

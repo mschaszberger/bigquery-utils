@@ -19,6 +19,8 @@ import backfill
 import pytest
 from google.cloud import bigquery
 
+from tests import utils
+
 TEST_DIR = os.path.realpath(os.path.dirname(__file__) + "/..")
 LOAD_JOB_POLLING_TIMEOUT = 20  # seconds
 
@@ -38,13 +40,11 @@ def test_backfill(bq, gcs_partitioned_data, gcs_truncating_load_config,
     partitions despite having WRITE_TRUNCATE disposition because the destination
     table should target only a particular partition with a decorator.
     """
-    if not gcs_truncating_load_config.exists():
-        raise EnvironmentError(
-            "the test is not configured correctly the load.json is missing")
-    # load each partition.
-    for gcs_data in gcs_partitioned_data:
-        if not gcs_data.exists():
-            raise EnvironmentError("test data objects must exist")
+    utils.check_blobs_exist(
+        gcs_truncating_load_config,
+        "the test is not configured correctly the load.json is missing")
+    utils.check_blobs_exist(gcs_partitioned_data,
+                            "test data objects must exist")
 
     expected_num_rows = 0
     for part in [

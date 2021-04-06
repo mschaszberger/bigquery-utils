@@ -116,14 +116,13 @@ def dest_table(request, bq, mock_env, dest_dataset) -> bigquery.Table:
         schema = gcs_ocn_bq_ingest.common.utils.dict_to_bq_schema(
             json.load(schema_file))
 
-    table = bigquery.Table(
-        f"{os.environ.get('GCP_PROJECT')}"
-        f".{dest_dataset.dataset_id}.cf_test_nation_"
-        f"{str(uuid.uuid4()).replace('-','_')}",
-        schema=schema,
-    )
-
-    table = bq.create_table(table)
+    table = bq.create_table(
+        bigquery.Table(
+            f"{os.environ.get('GCP_PROJECT')}"
+            f".{dest_dataset.dataset_id}.cf_test_nation_"
+            f"{str(uuid.uuid4()).replace('-','_')}",
+            schema=schema,
+        ))
 
     def teardown():
         bq.delete_table(table, not_found_ok=True)
@@ -135,7 +134,7 @@ def dest_table(request, bq, mock_env, dest_dataset) -> bigquery.Table:
 @pytest.fixture(scope="function")
 def gcs_data(request, gcs_bucket, dest_dataset,
              dest_table) -> storage.blob.Blob:
-    data_objs = []
+    data_objs: List[storage.blob.Blob] = []
     for test_file in ["part-m-00000", "part-m-00001", "_SUCCESS"]:
         data_obj: storage.blob.Blob = gcs_bucket.blob("/".join([
             f"{dest_dataset.project}.{dest_dataset.dataset_id}",
@@ -152,7 +151,7 @@ def gcs_data(request, gcs_bucket, dest_dataset,
                 do.delete()
 
     request.addfinalizer(teardown)
-    return data_objs[-1]
+    return data_objs
 
 
 @pytest.fixture(scope="function")
@@ -175,12 +174,13 @@ def gcs_data_under_sub_dirs(request, gcs_bucket, dest_dataset,
                 do.delete()
 
     request.addfinalizer(teardown)
-    return data_objs[-1]
+    return data_objs
 
 
 @pytest.fixture(scope="function")
 def gcs_truncating_load_config(request, gcs_bucket, dest_dataset,
-                               dest_table) -> storage.blob.Blob:
+                               dest_table) -> List[storage.blob.Blob]:
+    config_objs: List[storage.blob.Blob] = []
     config_obj: storage.blob.Blob = gcs_bucket.blob("/".join([
         dest_dataset.dataset_id,
         dest_table.table_id,
@@ -189,13 +189,15 @@ def gcs_truncating_load_config(request, gcs_bucket, dest_dataset,
     ]))
     config_obj.upload_from_string(
         json.dumps({"writeDisposition": "WRITE_TRUNCATE"}))
+    config_objs.append(config_obj)
 
     def teardown():
-        if config_obj.exists():
-            config_obj.delete()
+        for do in config_objs:
+            if do.exists():
+                do.delete()
 
     request.addfinalizer(teardown)
-    return config_obj
+    return config_objs
 
 
 @pytest.fixture(scope="function")
@@ -204,7 +206,7 @@ def gcs_batched_data(request, gcs_bucket, dest_dataset,
     """
   upload two batches of data
   """
-    data_objs = []
+    data_objs: List[storage.blob.Blob] = []
     for batch in ["batch0", "batch1"]:
         for test_file in ["part-m-00000", "part-m-00001", "_SUCCESS"]:
             data_obj: storage.blob.Blob = gcs_bucket.blob("/".join([
@@ -221,7 +223,7 @@ def gcs_batched_data(request, gcs_bucket, dest_dataset,
                 do.delete()
 
     request.addfinalizer(teardown)
-    return [data_objs[-1], data_objs[-4]]
+    return data_objs
 
 
 @pytest.fixture
@@ -273,6 +275,55 @@ def gcs_external_config(request, gcs_bucket, dest_dataset,
     return config_objs
 
 
+@pytest.fixture
+def gcs_destination_config(request, gcs_bucket, dest_dataset,
+                           dest_partitioned_table) -> List[storage.blob.Blob]:
+    """
+    This tests that a load.json file with destinationTable specified is used
+    to load data.
+
+    :param request:
+    :param gcs_bucket:
+    :param dest_dataset:
+    :param dest_partitioned_table:
+    :return:
+    """
+    config_objs = []
+    config_obj: storage.blob.Blob = gcs_bucket.blob("/".join([
+        "_config",
+        "load.json",
+    ]))
+
+    config_obj.upload_from_string(
+        json.dumps({
+            "writeDisposition":
+                "WRITE_TRUNCATE",
+            "fieldDelimiter":
+                "|",
+            "destinationTable": {
+                "projectId": dest_partitioned_table.project,
+                "datasetId": dest_partitioned_table.dataset_id,
+                "tableId": dest_partitioned_table.table_id
+            },
+            "destinationRegex": (
+                r".*?"  # ignore everything leading up to partition
+                r"(?P<yyyy>[\d]{4})/?"  # partition year (yyyy) (optional)
+                r"(?P<mm>[\d]{2})?/?"  # partition month (mm) (optional)
+                r"(?P<dd>[\d]{2})?/?"  # partition day (dd)  (optional)
+                r"(?P<hh>[\d]{2})?/?"  # partition hour (hh) (optional)
+            )
+        }))
+    config_objs.append(config_obj)
+
+    def teardown():
+        for do in config_objs:
+            if do.exists():
+                do.delete()
+
+    request.addfinalizer(teardown)
+    return config_objs
+
+
 @pytest.fixture(scope="function")
 def gcs_partitioned_data(request, gcs_bucket, dest_dataset,
                          dest_partitioned_table) -> List[storage.blob.Blob]:
@@ -295,7 +346,117 @@ def gcs_partitioned_data(request, gcs_bucket, dest_dataset,
                 dobj.delete()
 
     request.addfinalizer(teardown)
-    return [data_objs[-1], data_objs[-3]]
+    return data_objs
+
+
+@pytest.fixture(scope="function")
+def gcs_partitioned_parquet_data(
+        request, gcs_bucket, dest_dataset,
+        dest_partitioned_table) -> List[storage.blob.Blob]:
+    data_objs = []
+    for partition in ["$2017041101", "$2017041102"]:
+        for test_file in [
+                "nyc311_25_rows_00.parquet", "nyc311_25_rows_01.parquet",
+                "_SUCCESS"
+        ]:
+            data_obj: storage.blob.Blob = gcs_bucket.blob("/".join(
+                [partition, test_file]))
+            data_obj.upload_from_filename(
+                os.path.join(TEST_DIR, "resources", "test-data", "nyc_311",
+                             partition, test_file))
+            data_objs.append(data_obj)
+
+    def teardown():
+        for dobj in data_objs:
+            # we expect some backfill files to be removed by the cloud function.
+            if dobj.exists():
+                dobj.delete()
+
+    request.addfinalizer(teardown)
+    return data_objs
+
+
+@pytest.fixture(scope="function")
+def gcs_split_path_partitioned_data(
+        request, gcs_bucket, dest_dataset,
+        dest_partitioned_table) -> List[storage.blob.Blob]:
+    data_objs = []
+    for partition in ["$2017041101", "$2017041102"]:
+        for test_file in ["nyc_311.csv", "_SUCCESS"]:
+            data_obj: storage.blob.Blob = gcs_bucket.blob("/".join([
+                "foo",
+                "bar",
+                "baz",
+                partition[1:5],  # year
+                partition[5:7],  # month
+                partition[7:9],  # day
+                partition[9:],  # hour
+                "biz_evnt_key=101",
+                test_file
+            ]))
+            data_obj.upload_from_filename(
+                os.path.join(TEST_DIR, "resources", "test-data", "nyc_311",
+                             partition, test_file))
+            data_objs.append(data_obj)
+
+    def teardown():
+        for dobj in data_objs:
+            # we expect some backfill files to be removed by the cloud function.
+            if dobj.exists():
+                dobj.delete()
+
+    request.addfinalizer(teardown)
+    return data_objs
+
+
+@pytest.fixture(scope="function")
+def gcs_split_path_partitioned_parquet_data(
+        request, gcs_bucket, dest_dataset,
+        dest_partitioned_table) -> List[storage.blob.Blob]:
+    data_objs = []
+    for partition in ["$2017041101", "$2017041102"]:
+        for test_file in [
+                "nyc311_25_rows_00.parquet", "nyc311_25_rows_01.parquet"
+        ]:
+            data_obj: storage.blob.Blob = gcs_bucket.blob("/".join([
+                "foo",
+                "bar",
+                "baz",
+                partition[1:5],  # year
+                partition[5:7],  # month
+                partition[7:9],  # day
+                partition[9:],  # hour
+                "biz_evnt_key=101",
+                test_file
+            ]))
+            data_obj.upload_from_filename(
+                os.path.join(TEST_DIR, "resources", "test-data", "nyc_311",
+                             partition, test_file))
+            data_objs.append(data_obj)
+        # Add _SUCCESS file under the hour partition folder
+        data_obj: storage.blob.Blob = gcs_bucket.blob("/".join([
+            "foo",
+            "bar",
+            "baz",
+            partition[1:5],  # year
+            partition[5:7],  # month
+            partition[7:9],  # day
+            partition[9:],  # hour
+            "_SUCCESS"
+        ]))
+        data_obj.upload_from_filename(
+            os.path.join(TEST_DIR, "resources", "test-data", "nyc_311",
+                         partition, "_SUCCESS"))
+        data_objs.append(data_obj)
+
+    def teardown():
+        for dobj in data_objs:
+            # we expect some backfill files to be removed by the cloud function.
+            if dobj.exists():
+                dobj.delete()
+
+    request.addfinalizer(teardown)
+    return data_objs
 
 
 @pytest.fixture(scope="function")
@@ -463,7 +624,7 @@ def gcs_backlog(request, gcs, gcs_bucket,
 
 @pytest.fixture
 def gcs_external_update_config(request, gcs_bucket, dest_dataset,
-                               dest_ordered_update_table) -> storage.Blob:
+                               dest_ordered_update_table) -> List[storage.Blob]:
     config_objs = []
     sql_obj = gcs_bucket.blob("/".join([
         f"{dest_dataset.project}.{dest_dataset.dataset_id}",
@@ -519,11 +680,9 @@ def gcs_external_update_config(request, gcs_bucket, dest_dataset,
                 do.delete()
 
     request.addfinalizer(teardown)
-    return backfill_blob
+    return config_objs
 
 
-@pytest.mark.usefixtures("bq", "gcs_bucket", "dest_dataset",
-                         "dest_partitioned_table")
 @pytest.fixture
 def gcs_external_partitioned_config(
         request, bq, gcs_bucket, dest_dataset,
@@ -561,6 +720,38 @@ def gcs_external_partitioned_config(
     }
     config_obj.upload_from_string(json.dumps(config))
     config_objs.append(sql_obj)
+    config_objs.append(config_obj)
+
+    def teardown():
+        for do in config_objs:
+            if do.exists:
+                do.delete()
+
+    request.addfinalizer(teardown)
+    return config_objs
+
+
+@pytest.fixture
+def gcs_external_partitioned_parquet_config(
+        request, bq, gcs_bucket, dest_dataset,
+        dest_partitioned_table) -> List[storage.blob.Blob]:
+    config_objs = []
+    # Upload SQL query used to load table
+    sql_obj = gcs_bucket.blob("/".join([
+        "_config",
+        "bq_transform.sql",
+    ]))
+    sql_obj.upload_from_string(
+        "INSERT {dest_dataset}.{dest_table} "
+        "SELECT * FROM temp_ext;"
+    )
+    config_objs.append(sql_obj)
+    # Upload external table definition
+    # https://cloud.google.com/bigquery/docs/reference/rest/v2/tables#externaldataconfiguration
+    config_obj = gcs_bucket.blob("/".join(["_config", "external.json"]))
+    config_obj.upload_from_string(json.dumps({
+        "sourceFormat": "PARQUET",
+    }))
     config_objs.append(config_obj)
 
     def teardown():

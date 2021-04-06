@@ -21,18 +21,18 @@ By Default we try to read dataset, table, partition (or yyyy/mm/dd/hh) and
 batch id using the following python regex:
 ```python3
 DEFAULT_DESTINATION_REGEX = (
-    r"^(?P<dataset>[\w\-\._0-9]+)/"   # dataset (required)
-    r"(?P<table>[\w\-_0-9]+)/?"       # table name (required)
+    r"^(?P<dataset>[\w\-\.]+)/"   # dataset (required)
+    r"(?P<table>[\w\-]+)/?"       # table name (required)
     # break up historical v.s. incremental to separate prefixes (optional)
     r"(?:historical|incremental)?/?"
-    r"(?P<partition>\$[0-9]+)?/?"     # partition decorator (optional)
-    r"(?:"                            # [begin] yyyy/mm/dd/hh/ group (optional)
-    r"(?P<yyyy>[0-9]{4})/?"           # partition year (yyyy) (optional)
-    r"(?P<mm>[0-9]{2})?/?"            # partition month (mm) (optional)
-    r"(?P<dd>[0-9]{2})?/?"            # partition day (dd)  (optional)
-    r"(?P<hh>[0-9]{2})?/?"            # partition hour (hh) (optional)
-    r")?"                             # [end]yyyy/mm/dd/hh/ group (optional)
-    r"(?P<batch>[\w\-_0-9]+)?/"       # batch id (optional)
+    r"(?P<partition>\$[\d]+)?/?"  # partition decorator (optional)
+    r"(?:"                        # [begin] yyyy/mm/dd/hh/ group (optional)
+    r"(?P<yyyy>[\d]{4})/?"        # partition year (yyyy) (optional)
+    r"(?P<mm>[\d]{2})?/?"         # partition month (mm) (optional)
+    r"(?P<dd>[\d]{2})?/?"         # partition day (dd)  (optional)
+    r"(?P<hh>[\d]{2})?/?"         # partition hour (hh) (optional)
+    r")?"                         # [end]yyyy/mm/dd/hh/ group (optional)
+    r"(?P<batch>[\w\-]+)?/"       # batch id (optional)
 )
 ```
 you can see if this meets your needs in this [regex playground](https://regex101.com/r/5Y9TDh/2)
@@ -100,8 +100,8 @@ and/or table and/or under the partition prefixes.
 
 For example if you have the following files:
 ```text
-gs://${INGESTION_BUCKET}/_config/load.json`
-gs://${INGESTION_BUCKET}/${BQ_DATASET}/_config/load.json`
+gs://${INGESTION_BUCKET}/_config/load.json
+gs://${INGESTION_BUCKET}/${BQ_DATASET}/_config/load.json
 gs://${INGESTION_BUCKET}/${BQ_DATASET}/${BQ_TABLE_NAME}/_config/load.json
 ```
 The json objects will be merged where key conflicts are resolved by config in

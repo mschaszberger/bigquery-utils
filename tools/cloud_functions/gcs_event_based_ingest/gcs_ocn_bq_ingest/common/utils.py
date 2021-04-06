@@ -24,10 +24,12 @@ import json
 import os
 import pathlib
 import pprint
+import re
 import sys
 import time
 import uuid
-from typing import Any, Deque, Dict, List, Optional, Tuple, Union
+from urllib.parse import urlparse
+from typing import Any, Deque, Dict, List, Optional, Tuple, Union, Set
 
 import cachetools
 import google.api_core
@@ -44,60 +46,83 @@ from . import exceptions  # pylint: disable=no-name-in-module,import-error
 
 def external_query(  # pylint: disable=too-many-arguments
         gcs_client: storage.Client, bq_client: bigquery.Client, gsurl: str,
-        query: str, dest_table_ref: bigquery.TableReference, job_id: str):
+        query: str, load_config: bigquery.LoadJobConfig, job_id: str):
     """Load from query over external table from GCS.
 
     This hinges on a SQL query defined in GCS at _config/*.sql and
-    an external table definition _config/external.json (otherwise will assume
+    an external table definition _config/{constants.BQ_EXTERNAL_TABLE_CONFIG_FILENAME} (otherwise will assume
     CSV external table)
     """
     external_table_config = read_gcs_file_if_exists(
-        gcs_client, f"{gsurl}_config/external.json")
+        gcs_client,
+        f"{gsurl}_config/{constants.BQ_EXTERNAL_TABLE_CONFIG_FILENAME}")
     if not external_table_config:
         external_table_config = look_for_config_in_parents(
-            gcs_client, gsurl, "external.json")
+            gcs_client, gsurl, constants.BQ_EXTERNAL_TABLE_CONFIG_FILENAME)
     if external_table_config:
         external_table_def = json.loads(external_table_config)
     else:
-        print(f" {gsurl}_config/external.json not found in parents of {gsurl}. "
-              "Falling back to default PARQUET external table: "
-              f"{json.dumps(constants.DEFAULT_EXTERNAL_TABLE_DEFINITION)}")
+        print(
+            f" {gsurl}_config/{constants.BQ_EXTERNAL_TABLE_CONFIG_FILENAME} not found in parents of {gsurl}. "
+            "Falling back to default PARQUET external table: "
+            f"{json.dumps(constants.DEFAULT_EXTERNAL_TABLE_DEFINITION)}")
         external_table_def = constants.DEFAULT_EXTERNAL_TABLE_DEFINITION
 
     # This may cause an issue if >10,000 files.
     external_table_def["sourceUris"] = flatten2dlist(
-        get_batches_for_prefix(gcs_client, gsurl))
-    print(f"external table def = {json.dumps(external_table_config, indent=2)}")
+        get_batches_for_gsurl(gcs_client,
+                              gsurl,
+                              ignore_files=[
+                                  constants.SUCCESS_FILENAME,
+                                  constants.BQ_EXTERNAL_TABLE_CONFIG_FILENAME,
+                                  'bq_transform.sql'
+                              ]))
+    print(
+        f"EXTERNAL TABLE SOURCE URIS:\n"
+        f"{chr(10).join(external_table_def['sourceUris'])}"  # chr(10) = newline
+    )
+    print(f"external table def = {json.dumps(external_table_def, indent=2)}")
     external_config = bigquery.ExternalConfig.from_api_repr(external_table_def)
     job_config = bigquery.QueryJobConfig(
         table_definitions={"temp_ext": external_config}, use_legacy_sql=False)
 
-    # drop partition decorator if present.
-    table_id = dest_table_ref.table_id.split("$")[0]
+    # The BigQuery python library does not currently expose destinationTable
+    # as a property in the LoadJobConfig class. Because of this, you have to
+    # convert the LoadJobConfig object to the API representation and then
+    # extract the dictionary's value for key: destinationTable.
+    load_config = load_config.to_api_repr().get('load')
+    if load_config:
+        if load_config.get('destinationTable'):
+            project_id = load_config.get('destinationTable').get('projectId')
+            dataset_id = load_config.get('destinationTable').get('datasetId')
+            table_id = load_config.get('destinationTable').get('tableId')
+    if project_id and dataset_id and table_id:
+        # drop partition decorator if present.
+        table_id = table_id.split("$")[0]
 
-    # similar syntax to str.format but doesn't require escaping braces
-    # elsewhere in query (e.g. in a regex)
-    rendered_query = query\
-        .replace(
-            "{dest_dataset}",
-            f"`{dest_table_ref.project}`.{dest_table_ref.dataset_id}")\
-        .replace("{dest_table}", table_id)
+        # similar syntax to str.format but doesn't require escaping braces
+        # elsewhere in query (e.g. in a regex)
+        rendered_query = query\
+            .replace(
+                "{dest_dataset}",
+                f"`{project_id}`.{dataset_id}")\
+            .replace("{dest_table}", table_id)
 
-    job: bigquery.QueryJob = bq_client.query(rendered_query,
-                                             job_config=job_config,
-                                             job_id=job_id)
+        job: bigquery.QueryJob = bq_client.query(rendered_query,
+                                                 job_config=job_config,
+                                                 job_id=job_id)
 
-    print(f"started asynchronous query job: {job.job_id}")
+        print(f"started asynchronous query job: {job.job_id}")
 
-    start_poll_for_errors = time.monotonic()
-    # Check if job failed quickly
-    while time.monotonic(
-    ) - start_poll_for_errors < constants.WAIT_FOR_JOB_SECONDS:
-        job.reload(client=bq_client)
-        if job.state == "DONE":
-            check_for_bq_job_and_children_errors(bq_client, job)
-            return
-        time.sleep(constants.JOB_POLL_INTERVAL_SECONDS)
+        start_poll_for_errors = time.monotonic()
+        # Check if job failed quickly
+        while time.monotonic(
+        ) - start_poll_for_errors < constants.WAIT_FOR_JOB_SECONDS:
+            job.reload(client=bq_client)
+            if job.state == "DONE":
+                check_for_bq_job_and_children_errors(bq_client, job)
+                return
+            time.sleep(constants.JOB_POLL_INTERVAL_SECONDS)
 
 
 def flatten2dlist(arr: List[List[Any]]) -> List[Any]:
@@ -105,21 +130,22 @@ def flatten2dlist(arr: List[List[Any]]) -> List[Any]:
     return [j for i in arr for j in i]
 
 
-def load_batches(gcs_client, bq_client, gsurl, dest_table_ref, job_id):
+def load_batches(gcs_client: storage.Client, bq_client: bigquery.Client,
+                 gsurl: str, load_config: bigquery.LoadJobConfig, job_id: str):
     """orchestrate 1 or more load jobs based on number of URIs and total byte
     size of objects at gsurl"""
-    batches = get_batches_for_prefix(gcs_client, gsurl)
-    load_config = construct_load_job_config(gcs_client, gsurl)
-    load_config.labels = constants.DEFAULT_JOB_LABELS
-
+    batches = get_batches_for_gsurl(gcs_client, gsurl)
     jobs: List[bigquery.LoadJob] = []
     for batch in batches:
-        print(load_config.to_api_repr())
+        # None is passed to destination parameter below because the load_config
+        # object contains the destination information
         job: bigquery.LoadJob = bq_client.load_table_from_uri(
-            batch, dest_table_ref, job_config=load_config, job_id=job_id)
+            batch, None, job_config=load_config, job_id=job_id)
 
-        print(f"started asyncronous bigquery load job with id: {job.job_id} for"
-              f" {gsurl}")
+        print(f"Started asyncronous bigquery load job with:\n"
+              f"job_id: {job.job_id}\n"
+              f"load_config: {load_config}\n"
+              f"gsurl: {gsurl}")
         jobs.append(job)
 
     start_poll_for_errors = time.monotonic()
@@ -176,13 +202,12 @@ def look_for_config_in_parents(storage_client: storage.Client, gsurl: str,
     return config
 
 
-def construct_load_job_config(storage_client: storage.Client,
-                              gsurl: str) -> bigquery.LoadJobConfig:
+def construct_config(storage_client: storage.Client, gsurl: str,
+                     config_filename: str) -> Dict:
     """
-    merge dictionaries for loadjob.json configs in parent directories.
+    merge dictionaries for configs in parent directories.
     The configs closest to gsurl should take precedence.
     """
-    config_filename = "load.json"
     blob: storage.Blob = storage.Blob.from_string(gsurl)
     bucket_name = blob.bucket.name
     obj_path = blob.name
@@ -193,7 +218,8 @@ def construct_load_job_config(storage_client: storage.Client,
                                        bucket_name, path)
 
     config_q: Deque[Dict[str, Any]] = collections.deque()
-    config_q.append(constants.BASE_LOAD_JOB_CONFIG)
+    if config_filename == constants.BQ_LOAD_CONFIG_FILENAME:
+        config_q.append(constants.BASE_LOAD_JOB_CONFIG)
     while parts:
         config = _get_parent_config("/".join(parts))
         if config:
@@ -204,20 +230,23 @@ def construct_load_job_config(storage_client: storage.Client,
     merged_config: Dict = {}
     while config_q:
         recursive_update(merged_config, config_q.popleft(), in_place=True)
+    print(f"merged_config for {config_filename}: {json.dumps(merged_config)}")
     if merged_config == constants.BASE_LOAD_JOB_CONFIG:
         print("falling back to default CSV load job config. "
               "Did you forget load.json?")
-        return bigquery.LoadJobConfig.from_api_repr(
-            constants.DEFAULT_LOAD_JOB_CONFIG)
-    print(f"merged_config: {merged_config}")
-    return bigquery.LoadJobConfig.from_api_repr({"load": merged_config})
+        return {"load": constants.DEFAULT_LOAD_JOB_CONFIG}
+    elif config_filename == constants.BQ_LOAD_CONFIG_FILENAME:
+        return {"load": merged_config}
+    # retuning any other config file that doesn't have the same name as
+    # constants.BQ_LOAD_CONFIG_FILENAME (default load.json)
+    return merged_config
 
 
-def get_batches_for_prefix(
-        gcs_client: storage.Client,
-        prefix_path: str,
-        ignore_subprefix="_config/",
-        ignore_file=constants.SUCCESS_FILENAME) -> List[List[str]]:
+def get_batches_for_gsurl(gcs_client: storage.Client,
+                          gsurl: str,
+                          ignore_subprefix="_config/",
+                          ignore_files=[constants.SUCCESS_FILENAME],
+                          recursive=False) -> List[List[str]]:
     """
     This function creates batches of GCS uris for a given prefix.
     This prefix could be a table prefix or a partition prefix inside a
@@ -225,27 +254,35 @@ def get_batches_for_prefix(
     returns an Array of their batches
     (one batch has an array of multiple GCS uris)
     """
-    batches = []
-    blob: storage.Blob = storage.Blob.from_string(prefix_path)
-    bucket_name = blob.bucket.name
-    prefix_name = blob.name
+    batches: List[List[str]] = []
+    parsed_url = urlparse(gsurl)
+    bucket_name: str = parsed_url.netloc
+    prefix_path: str = parsed_url.path.lstrip('/')
 
-    bucket = cached_get_bucket(gcs_client, bucket_name)
-    blobs = list(bucket.list_blobs(prefix=prefix_name, delimiter="/"))
-
+    bucket: storage.Bucket = cached_get_bucket(gcs_client, bucket_name)
+    folders: Set(str) = get_folders_in_gcs_path_prefix(gcs_client,
+                                                       bucket,
+                                                       prefix_path,
+                                                       recursive=recursive)
+    folders.add(prefix_path)
+    blobs: List[storage.blob.Blob] = []
+    for folder in folders:
+        blobs += (list(
+            gcs_client.list_blobs(bucket, prefix=folder, delimiter="/")))
     cumulative_bytes = 0
     max_batch_size = int(
         os.getenv("MAX_BATCH_BYTES", constants.DEFAULT_MAX_BATCH_BYTES))
     batch: List[str] = []
     for blob in blobs:
-        # API returns root prefix also. Which should be ignored.
-        # Similarly, the _SUCCESS file should be ignored.
-        # Finally, anything in the _config/ prefix should be ignored.
-        if (blob.name
-                not in {f"{prefix_name}/", f"{prefix_name}/{ignore_file}"}
-                or blob.name.startswith(f"{prefix_name}/{ignore_subprefix}")):
+        # The following blobs should be ignored:
+        #   - filenames in ignore_files list
+        #   - _config/ prefix
+        #   - .sql files
+        if (os.path.basename(blob.name) not in ignore_files and
+                not blob.name.startswith(f"{prefix_path}/{ignore_subprefix}")
+                and not blob.name.endswith('.sql')):
             if blob.size == 0:  # ignore empty files
-                print(f"ignoring empty file: gs://{bucket}/{blob.name}")
+                print(f"ignoring empty file: gs://{bucket.name}/{blob.name}")
                 continue
             cumulative_bytes += blob.size
 
@@ -258,7 +295,6 @@ def get_batches_for_prefix(
                 batch.clear()
                 batch.append(f"gs://{bucket_name}/{blob.name}")
                 cumulative_bytes = blob.size
-
     # pick up remaining files in the final batch
     if len(batch) > 0:
         batches.append(batch.copy())
@@ -268,8 +304,41 @@ def get_batches_for_prefix(
         print(f"split into {len(batches)} batches.")
     elif len(batches) < 1:
         raise google.api_core.exceptions.NotFound(
-            f"No files to load at {prefix_path}!")
+            f"No files to load at {gsurl}!")
     return batches
+
+
+def get_folders_in_gcs_path_prefix(gcs_client,
+                                   bucket,
+                                   prefix_path,
+                                   recursive=False):
+    """
+    This function lists all folders in a given GCS path using a more efficient
+    prefix filtering method so it only lists objects in a bucket with a given prefix
+    instead of listing all the objects in a bucket.
+    Inspiration for this method came from:
+    https://github.com/googleapis/google-cloud-python/issues/920#issuecomment-326125992
+    :param gcs_client:
+    :param prefix_path:
+    :param recursive: Whether to recursively search for folders
+    :return: list of GCS URIs
+    """
+    if not prefix_path.endswith('/'):
+        prefix_path = f"{prefix_path}/"
+    resp = gcs_client.list_blobs(bucket, prefix=prefix_path, delimiter='/')
+    # Iterate through response pages to retrieve only
+    # the gcs folder names (the file prefixes)
+    folders = set()
+    prefixes = set()
+    for page in resp.pages:
+        prefixes.update(page.prefixes)
+    # Check for folders within folders
+    for prefix_path in prefixes:
+        folders.add(prefix_path)
+        if recursive:
+            folders.update(
+                get_folders_in_gcs_path_prefix(gcs_client, bucket, prefix_path))
+    return folders
 
 
 def parse_notification(notification: dict) -> Tuple[str, str]:
@@ -457,13 +526,13 @@ def get_table_prefix(object_id: str) -> str:
         # These files will not match the regex and always should appear at the
         # table level.
         return removesuffix(object_id, f"/{basename}")
-    match = constants.DESTINATION_REGEX.match(
+    match = re.compile(constants.DESTINATION_REGEX).match(
         object_id.replace("/_backlog/", "/"))
     if not match:
         raise exceptions.DestinationRegexMatchException(
             f"could not determine table prefix for object id: {object_id}"
             "because it did not contain a match for destination_regex: "
-            f"{constants.DESTINATION_REGEX.pattern}")
+            f"{re.compile(constants.DESTINATION_REGEX).pattern}")
     table_group_index = match.re.groupindex.get("table")
     if table_group_index:
         table_level_index = match.regs[table_group_index][1]
@@ -549,9 +618,9 @@ def check_for_bq_job_and_children_errors(bq_client: bigquery.Client,
             f"following errors: {job.errors} "
             f"{pprint.pformat(job.to_api_repr())}")
     if isinstance(job, bigquery.QueryJob):
-        if (constants.FAIL_ON_ZERO_DML_ROWS_AFFECTED
-                and job.statement_type in constants.BQ_DML_STATEMENT_TYPES
-                and job.num_dml_affected_rows < 1):
+        if (constants.FAIL_ON_ZERO_DML_ROWS_AFFECTED and
+                job.statement_type in constants.BQ_DML_STATEMENT_TYPES and
+                job.num_dml_affected_rows < 1):
             raise exceptions.BigQueryJobFailure(
                 f"query job {job.job_id} ran successfully but did not "
                 f"affect any rows.  {pprint.pformat(job.to_api_repr())}")
@@ -622,45 +691,95 @@ def wait_on_gcs_blob(gcs_client: storage.Client,
     return False
 
 
-def gcs_path_to_table_ref_and_batch(
-    object_id: str, default_project: Optional[str]
-) -> Tuple[bigquery.TableReference, Optional[str]]:
-    """extract bigquery table reference and batch id from gcs object id"""
+def gcs_path_to_load_config_and_batch(
+    gcs_client: storage.Client, blob: storage.Blob,
+    default_project: Optional[str]
+) -> Tuple[bigquery.LoadJobConfig, Optional[str]]:
+    """extract bigquery table reference and batch id from gcs object id
 
-    destination_match = constants.DESTINATION_REGEX.match(object_id)
-    if not destination_match:
-        raise RuntimeError(f"Object ID {object_id} did not match regex:"
-                           f" {constants.DESTINATION_REGEX.pattern}")
-    destination_details = destination_match.groupdict()
-    try:
-        dataset = destination_details['dataset']
-        table = destination_details['table']
-    except KeyError:
-        raise exceptions.DestinationRegexMatchException(
-            f"Object ID {object_id} did not match dataset and table in regex:"
-            f" {constants.DESTINATION_REGEX.pattern}") from KeyError
-    partition = destination_details.get('partition')
-    year, month, day, hour = (
-        destination_details.get(key, "") for key in ('yyyy', 'mm', 'dd', 'hh'))
-    part_list = (year, month, day, hour)
-    if not partition and any(part_list):
-        partition = '$' + ''.join(part_list)
-    batch_id = destination_details.get('batch')
-    labels = constants.DEFAULT_JOB_LABELS
+    This function will search for destination table information in two places:
+     - GCS path (table info extracted via regex)
+     - load.json (table info stored as TableReference JSON inside
+       destinationTable dict)
+       See: https://cloud.google.com/bigquery/docs/reference/rest/v2/Job#jobconfigurationload
+            https://cloud.google.com/bigquery/docs/reference/rest/v2/TableReference
+    Args:
+        gcs_client: storage.Client
+        blob: storage.Blob
+        default_project: Optional[str]
+    Returns:
+        google.cloud.bigquery.LoadJobConfig
+    Raises:
+        exceptions.DestinationRegexMatchException if the regex matched but the
+         dictionary of matches does not contain a table or a dataset.
+        RuntimeError if the destination regex didn't match anything in the
+         GCS path
+    """
+    gsurl = removesuffix(f"gs://{blob.bucket.name}/{blob.name}",
+                         constants.SUCCESS_FILENAME)
+    print(f"GSURL: {gsurl}")
+    load_config: Dict = construct_config(
+        gcs_client, gsurl, constants.BQ_LOAD_CONFIG_FILENAME).get('load')
+    print(f"LOAD CONFIG: {load_config}")
+    if load_config:
+        dest_config: Dict = load_config.get('destinationTable') or {}
+        print(f"DESTINATION CONFIG: {dest_config}")
+        dest_regex = load_config.get(
+            'destinationRegex') or constants.DESTINATION_REGEX
+        print(f"DESTINATION REGEX: {dest_regex}")
+        destination_match = re.compile(dest_regex).match(blob.name)
+        if not destination_match:
+            raise RuntimeError(f"Object ID {blob.name} did not match regex:"
+                               f" {constants.DESTINATION_REGEX.pattern}")
+        destination_details = destination_match.groupdict()
+        try:
+            project = dest_config.get('projectId') or os.getenv(
+                "BQ_STORAGE_PROJECT", default_project)
+            dataset = dest_config.get(
+                'datasetId') or destination_details['dataset']
+            # Use project id if it's specified in the GCS path, but only if there
+            # isn't a project specified in the destinationTable dict JSON
+            # config file
+            if '.' in dataset and not dest_config:
+                project = dataset.split('.')[0]
+                dataset = dataset.split('.')[1]
+            table = dest_config.get('tableId') or destination_details['table']
+        except KeyError:
+            raise exceptions.DestinationRegexMatchException(
+                f"Object ID {blob.name} did not match dataset and table in regex:"
+                f" {constants.DESTINATION_REGEX.pattern}") from KeyError
+        partition = destination_details.get('partition')
+        year, month, day, hour = (destination_details.get(key, "")
+                                  for key in ('yyyy', 'mm', 'dd', 'hh'))
+        part_list = (year, month, day, hour)
+        if not partition and any(part_list):
+            partition = '$' + ''.join(part_list)
+        batch_id = destination_details.get('batch')
+        labels = constants.DEFAULT_JOB_LABELS
 
-    if batch_id:
-        labels["batch-id"] = batch_id
+        if batch_id:
+            labels["batch-id"] = batch_id
 
-    if partition:
-
-        dest_table_ref = bigquery.TableReference.from_string(
-            f"{dataset}.{table}{partition}",
-            default_project=os.getenv("BQ_STORAGE_PROJECT", default_project))
-    else:
-        dest_table_ref = bigquery.TableReference.from_string(
-            f"{dataset}.{table}",
-            default_project=os.getenv("BQ_STORAGE_PROJECT", default_project))
-    return dest_table_ref, batch_id
+        if partition:
+            load_config['destinationTable'] = {
+                'projectId': project,
+                'datasetId': dataset,
+                'tableId': f"{table}{partition}"
+            }
+        else:
+            load_config['destinationTable'] = {
+                'projectId': project,
+                'datasetId': dataset,
+                'tableId': table
+            }
+        # destinationRegex is a custom key that must be removed before converting to
+        # https://cloud.google.com/bigquery/docs/reference/rest/v2/Job#jobconfigurationload
+        if load_config.get('destinationRegex'):
+            load_config.pop('destinationRegex')
+        load_config: bigquery.LoadJobConfig = bigquery.LoadJobConfig.from_api_repr(
+            {'load': load_config})
+        load_config.labels: bigquery.LoadJobConfig.labels = constants.DEFAULT_JOB_LABELS
+        return load_config, batch_id
 
 
 def create_job_id(success_file_path):
@@ -673,7 +792,7 @@ def create_job_id(success_file_path):
     3. uuid for uniqueness
     """
     clean_job_id = os.getenv('JOB_PREFIX', constants.DEFAULT_JOB_PREFIX)
-    clean_job_id += constants.NON_BQ_JOB_ID_REGEX.sub(
+    clean_job_id += re.compile(constants.NON_BQ_JOB_ID_REGEX).sub(
         '_', success_file_path.replace('/', '-'))
     # add uniqueness in case we have to "re-process" a success file that is
     # republished (e.g. to fix a bad batch of data) or handle multiple load jobs
@@ -734,10 +853,11 @@ def apply(
     if lock_blob:
         handle_bq_lock(gcs_client, lock_blob, job_id)
     bkt = success_blob.bucket
-    dest_table_ref, _ = gcs_path_to_table_ref_and_batch(success_blob.name,
-                                                        bq_client.project)
     gsurl = removesuffix(f"gs://{bkt.name}/{success_blob.name}",
                          constants.SUCCESS_FILENAME)
+
+    load_config, _ = gcs_path_to_load_config_and_batch(gcs_client, success_blob,
+                                                       bq_client.project)
     print(
         "looking for a transformation tranformation sql file in parent _config."
     )
@@ -749,11 +869,11 @@ def apply(
             print("EXTERNAL QUERY")
             print(f"found external query: {external_query_sql}")
             external_query(gcs_client, bq_client, gsurl, external_query_sql,
-                           dest_table_ref, job_id)
+                           load_config, job_id)
             return
 
         print("LOAD_JOB")
-        load_batches(gcs_client, bq_client, gsurl, dest_table_ref, job_id)
+        load_batches(gcs_client, bq_client, gsurl, load_config, job_id)
         return
 
     except (google.api_core.exceptions.GoogleAPIError,
