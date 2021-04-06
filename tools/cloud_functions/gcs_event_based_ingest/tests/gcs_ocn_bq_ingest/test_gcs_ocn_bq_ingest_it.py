@@ -13,7 +13,6 @@
 # limitations under the License.
 """integration tests for gcs_ocn_bq_ingest"""
 import os
-import time
 from typing import List
 
 import google.cloud.exceptions
@@ -37,7 +36,7 @@ def test_load_job(bq, gcs_data, dest_dataset, dest_table, mock_env):
     test_data_file = os.path.join(TEST_DIR, "resources", "test-data", "nation",
                                   "part-m-00001")
     expected_num_rows = sum(1 for _ in open(test_data_file))
-    bq_wait_for_rows(bq, dest_table, expected_num_rows)
+    test_utils.bq_wait_for_rows(bq, dest_table, expected_num_rows)
 
 
 @pytest.mark.IT
@@ -54,7 +53,7 @@ def test_gcf_event_schema(bq, gcs_data, dest_dataset, dest_table, mock_env):
     test_data_file = os.path.join(TEST_DIR, "resources", "test-data", "nation",
                                   "part-m-00001")
     expected_num_rows = sum(1 for _ in open(test_data_file))
-    bq_wait_for_rows(bq, dest_table, expected_num_rows)
+    test_utils.bq_wait_for_rows(bq, dest_table, expected_num_rows)
 
 
 @pytest.mark.IT
@@ -66,7 +65,7 @@ def test_duplicate_success_notification(bq, gcs_data, dest_dataset, dest_table,
     test_data_file = os.path.join(TEST_DIR, "resources", "test-data", "nation",
                                   "part-m-00001")
     expected_num_rows = sum(1 for _ in open(test_data_file))
-    bq_wait_for_rows(bq, dest_table, expected_num_rows)
+    test_utils.bq_wait_for_rows(bq, dest_table, expected_num_rows)
 
 
 @pytest.mark.IT
@@ -89,7 +88,7 @@ def test_load_job_truncating_batches(bq, gcs_batched_data,
     test_data_file = os.path.join(TEST_DIR, "resources", "test-data", "nation",
                                   "part-m-00001")
     expected_num_rows = sum(1 for _ in open(test_data_file))
-    bq_wait_for_rows(bq, dest_table, expected_num_rows)
+    test_utils.bq_wait_for_rows(bq, dest_table, expected_num_rows)
 
 
 @pytest.mark.IT
@@ -109,7 +108,7 @@ def test_load_job_appending_batches(bq, gcs_batched_data, dest_dataset,
     test_utils.check_blobs_exist(gcs_batched_data,
                                  "test data objects must exist")
     test_utils.trigger_gcf_for_each_blob(gcs_batched_data)
-    bq_wait_for_rows(bq, dest_table, expected_counts)
+    test_utils.bq_wait_for_rows(bq, dest_table, expected_counts)
 
 
 @pytest.mark.IT
@@ -126,7 +125,7 @@ def test_external_query_pure(bq, gcs_data, gcs_external_config, dest_dataset,
     test_data_file = os.path.join(TEST_DIR, "resources", "test-data", "nation",
                                   "part-m-00001")
     expected_num_rows = sum(1 for _ in open(test_data_file))
-    bq_wait_for_rows(bq, dest_table, expected_num_rows)
+    test_utils.bq_wait_for_rows(bq, dest_table, expected_num_rows)
 
 
 @pytest.mark.IT
@@ -150,7 +149,7 @@ def test_load_job_partitioned(bq, gcs_partitioned_data,
         test_data_file = os.path.join(TEST_DIR, "resources", "test-data",
                                       "nyc_311", part, "nyc_311.csv")
         expected_num_rows += sum(1 for _ in open(test_data_file))
-    bq_wait_for_rows(bq, dest_partitioned_table, expected_num_rows)
+    test_utils.bq_wait_for_rows(bq, dest_partitioned_table, expected_num_rows)
 
 
 @pytest.mark.IT
@@ -183,7 +182,7 @@ def test_external_query_partitioned(bq, gcs_partitioned_data,
         test_data_file = os.path.join(TEST_DIR, "resources", "test-data",
                                       "nyc_311", part, "nyc_311.csv")
         expected_num_rows += sum(1 for _ in open(test_data_file))
-    bq_wait_for_rows(bq, dest_partitioned_table, expected_num_rows)
+    test_utils.bq_wait_for_rows(bq, dest_partitioned_table, expected_num_rows)
 
 
 @pytest.mark.IT
@@ -203,14 +202,13 @@ def test_external_query_partitioned_parquet(
     test_utils.trigger_gcf_for_each_blob(
         gcs_split_path_partitioned_parquet_data)
     expected_num_rows = 100
-    bq_wait_for_rows(bq, dest_partitioned_table, expected_num_rows)
+    test_utils.bq_wait_for_rows(bq, dest_partitioned_table, expected_num_rows)
 
 
 @pytest.mark.IT
 def test_external_query_partitioned_with_destination_config(
-        bq, gcs_split_path_partitioned_data,
-        gcs_external_partitioned_config, gcs_destination_config,
-        dest_partitioned_table, mock_env):
+        bq, gcs_split_path_partitioned_data, gcs_external_partitioned_config,
+        gcs_destination_config, dest_partitioned_table, mock_env):
     """tests the basic external query ingrestion mechanics
     with bq_transform.sql and external.json
     """
@@ -219,9 +217,9 @@ def test_external_query_partitioned_with_destination_config(
         "config objects must exist")
     test_utils.check_blobs_exist(gcs_split_path_partitioned_data,
                                  "test data must exist")
-    test_utils.trigger_gcf_for_each_blob(
-        gcs_split_path_partitioned_data +
-        gcs_external_partitioned_config + gcs_destination_config)
+    test_utils.trigger_gcf_for_each_blob(gcs_split_path_partitioned_data +
+                                         gcs_external_partitioned_config +
+                                         gcs_destination_config)
     expected_num_rows = 0
     for part in [
             "$2017041101",
@@ -230,7 +228,7 @@ def test_external_query_partitioned_with_destination_config(
         test_data_file = os.path.join(TEST_DIR, "resources", "test-data",
                                       "nyc_311", part, "nyc_311.csv")
         expected_num_rows += sum(1 for _ in open(test_data_file))
-    bq_wait_for_rows(bq, dest_partitioned_table, expected_num_rows)
+    test_utils.bq_wait_for_rows(bq, dest_partitioned_table, expected_num_rows)
 
 
 @pytest.mark.IT
@@ -248,7 +246,7 @@ def test_look_for_config_in_parents(bq, gcs_data_under_sub_dirs,
     test_data_file = os.path.join(TEST_DIR, "resources", "test-data", "nation",
                                   "part-m-00001")
     expected_num_rows = sum(1 for _ in open(test_data_file))
-    bq_wait_for_rows(bq, dest_table, expected_num_rows)
+    test_utils.bq_wait_for_rows(bq, dest_table, expected_num_rows)
 
 
 @pytest.mark.IT
@@ -268,7 +266,7 @@ def test_look_for_destination_config_in_parents(
         test_data_file = os.path.join(TEST_DIR, "resources", "test-data",
                                       "nyc_311", part, "nyc_311.csv")
         expected_num_rows += sum(1 for _ in open(test_data_file))
-    bq_wait_for_rows(bq, dest_partitioned_table, expected_num_rows)
+    test_utils.bq_wait_for_rows(bq, dest_partitioned_table, expected_num_rows)
 
 
 @pytest.mark.IT
@@ -300,31 +298,3 @@ def test_get_batches_for_prefix_recursive(gcs, gcs_partitioned_data,
         gcs,
         f"gs://{blob.bucket.name}/{dest_dataset.dataset_id}",
         recursive=True)
-
-
-def bq_wait_for_rows(bq_client: bigquery.Client, table: bigquery.Table,
-                     expected_num_rows: int):
-    """
-    polls tables.get API for number of rows until reaches expected value or
-    times out.
-
-    This is mostly an optimization to speed up the test suite without making it
-    flaky.
-    """
-
-    start_poll = time.monotonic()
-    actual_num_rows = 0
-    while time.monotonic() - start_poll < LOAD_JOB_POLLING_TIMEOUT:
-        bq_table: bigquery.Table = bq_client.get_table(table)
-        actual_num_rows = bq_table.num_rows
-        if actual_num_rows == expected_num_rows:
-            return
-        if actual_num_rows > expected_num_rows:
-            raise AssertionError(
-                f"{table.project}.{table.dataset_id}.{table.table_id} has"
-                f"{actual_num_rows} rows. expected {expected_num_rows} rows.")
-    raise AssertionError(
-        f"Timed out after {LOAD_JOB_POLLING_TIMEOUT} seconds waiting for "
-        f"{table.project}.{table.dataset_id}.{table.table_id} to "
-        f"reach {expected_num_rows} rows."
-        f"last poll returned {actual_num_rows} rows.")

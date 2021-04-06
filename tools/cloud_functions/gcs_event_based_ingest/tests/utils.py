@@ -12,10 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Common test utilities"""
+from time import monotonic # Monotonic clock, cannot go backward.
 from typing import List
 
 import google.cloud.exceptions
 from google.cloud import storage
+from google.cloud import bigquery
 
 import gcs_ocn_bq_ingest.main
 
@@ -34,3 +36,31 @@ def trigger_gcf_for_each_blob(blobs: List[storage.blob.Blob]):
 def check_blobs_exist(blobs: List[storage.blob.Blob], error_msg_if_missing):
     if not all(blob.exists() for blob in blobs):
         raise google.cloud.exceptions.NotFound(error_msg_if_missing)
+
+
+def bq_wait_for_rows(bq_client: bigquery.Client, table: bigquery.Table,
+                     expected_num_rows: int):
+    """
+  polls tables.get API for number of rows until reaches expected value or
+  times out.
+
+  This is mostly an optimization to speed up the test suite without making it
+  flaky.
+  """
+
+    start_poll = monotonic() # Monotonic clock, cannot go backward.
+    actual_num_rows = 0
+    while monotonic() - start_poll < LOAD_JOB_POLLING_TIMEOUT:
+        bq_table: bigquery.Table = bq_client.get_table(table)
+        actual_num_rows = bq_table.num_rows
+        if actual_num_rows == expected_num_rows:
+            return
+        if actual_num_rows > expected_num_rows:
+            raise AssertionError(
+                f"{table.project}.{table.dataset_id}.{table.table_id} has"
+                f"{actual_num_rows} rows. expected {expected_num_rows} rows.")
+    raise AssertionError(
+        f"Timed out after {LOAD_JOB_POLLING_TIMEOUT} seconds waiting for "
+        f"{table.project}.{table.dataset_id}.{table.table_id} to "
+        f"reach {expected_num_rows} rows."
+        f"last poll returned {actual_num_rows} rows.")

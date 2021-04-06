@@ -741,10 +741,8 @@ def gcs_external_partitioned_parquet_config(
         "_config",
         "bq_transform.sql",
     ]))
-    sql_obj.upload_from_string(
-        "INSERT {dest_dataset}.{dest_table} "
-        "SELECT * FROM temp_ext;"
-    )
+    sql_obj.upload_from_string("INSERT {dest_dataset}.{dest_table} "
+                               "SELECT * FROM temp_ext;")
     config_objs.append(sql_obj)
     # Upload external table definition
     # https://cloud.google.com/bigquery/docs/reference/rest/v2/tables#externaldataconfiguration
