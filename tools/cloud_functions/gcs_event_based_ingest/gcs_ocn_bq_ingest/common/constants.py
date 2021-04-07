@@ -116,6 +116,11 @@ ACTION_FILENAMES = {
     START_BACKFILL_FILENAME,
 }
 
+SPECIAL_GCS_DIRECTORY_NAMES = {
+    '_config',  # Directory which holds external.json and load.json config files
+    '_backlog',  # Directory used to backfill data
+}
+
 RESTART_BUFFER_SECONDS = int(os.getenv("RESTART_BUFFER_SECONDS", "30"))
 
 ORDER_PER_TABLE = bool(

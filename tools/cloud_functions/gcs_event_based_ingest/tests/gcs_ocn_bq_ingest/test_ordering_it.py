@@ -30,7 +30,6 @@ import gcs_ocn_bq_ingest.main
 from tests import utils as test_utils
 
 TEST_DIR = os.path.realpath(os.path.dirname(__file__) + "/..")
-LOAD_JOB_POLLING_TIMEOUT = 20  # seconds
 
 # Testing that the subscriber does not get choked up by a common race condition
 # is crucial to ensuring this solution works.

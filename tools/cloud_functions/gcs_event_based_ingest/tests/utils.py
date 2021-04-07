@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Common test utilities"""
-from time import monotonic # Monotonic clock, cannot go backward.
+from time import monotonic  # Monotonic clock, cannot go backward.
 from typing import List
 
 import google.cloud.exceptions
@@ -20,6 +20,8 @@ from google.cloud import storage
 from google.cloud import bigquery
 
 import gcs_ocn_bq_ingest.main
+
+LOAD_JOB_POLLING_TIMEOUT = 20  # seconds
 
 
 def trigger_gcf_for_each_blob(blobs: List[storage.blob.Blob]):
@@ -48,7 +50,7 @@ def bq_wait_for_rows(bq_client: bigquery.Client, table: bigquery.Table,
   flaky.
   """
 
-    start_poll = monotonic() # Monotonic clock, cannot go backward.
+    start_poll = monotonic()  # Monotonic clock, cannot go backward.
     actual_num_rows = 0
     while monotonic() - start_poll < LOAD_JOB_POLLING_TIMEOUT:
         bq_table: bigquery.Table = bq_client.get_table(table)

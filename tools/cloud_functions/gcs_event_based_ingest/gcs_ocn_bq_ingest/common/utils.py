@@ -70,13 +70,7 @@ def external_query(  # pylint: disable=too-many-arguments
 
     # This may cause an issue if >10,000 files.
     external_table_def["sourceUris"] = flatten2dlist(
-        get_batches_for_gsurl(gcs_client,
-                              gsurl,
-                              ignore_files=[
-                                  constants.SUCCESS_FILENAME,
-                                  constants.BQ_EXTERNAL_TABLE_CONFIG_FILENAME,
-                                  'bq_transform.sql'
-                              ]))
+        get_batches_for_gsurl(gcs_client, gsurl))
     print(
         f"EXTERNAL TABLE SOURCE URIS:\n"
         f"{chr(10).join(external_table_def['sourceUris'])}"  # chr(10) = newline
@@ -244,13 +238,13 @@ def construct_config(storage_client: storage.Client, gsurl: str,
 
 def get_batches_for_gsurl(gcs_client: storage.Client,
                           gsurl: str,
-                          ignore_subprefix="_config/",
-                          ignore_files=[constants.SUCCESS_FILENAME],
+                          ignore_files=constants.ACTION_FILENAMES,
                           recursive=False) -> List[List[str]]:
     """
-    This function creates batches of GCS uris for a given prefix.
-    This prefix could be a table prefix or a partition prefix inside a
-    table prefix.
+    This function creates batches of GCS uris for a given gsurl.
+    The function will ignore uris of objects which match the following:
+      - filename in the ignore_files list
+      - filename contains any constant.SPECIAL_GCS_DIRECTORY_NAMES in their path
     returns an Array of their batches
     (one batch has an array of multiple GCS uris)
     """
@@ -274,13 +268,12 @@ def get_batches_for_gsurl(gcs_client: storage.Client,
         os.getenv("MAX_BATCH_BYTES", constants.DEFAULT_MAX_BATCH_BYTES))
     batch: List[str] = []
     for blob in blobs:
-        # The following blobs should be ignored:
+        # The following blobs will be ignored:
         #   - filenames in ignore_files list
-        #   - _config/ prefix
-        #   - .sql files
+        #   - filenames with constants.SPECIAL_GCS_DIRECTORY_NAMES in their path
         if (os.path.basename(blob.name) not in ignore_files and
-                not blob.name.startswith(f"{prefix_path}/{ignore_subprefix}")
-                and not blob.name.endswith('.sql')):
+                not any(blob_dir_name in constants.SPECIAL_GCS_DIRECTORY_NAMES
+                        for blob_dir_name in blob.name.split('/'))):
             if blob.size == 0:  # ignore empty files
                 print(f"ignoring empty file: gs://{bucket.name}/{blob.name}")
                 continue
@@ -319,11 +312,14 @@ def get_folders_in_gcs_path_prefix(gcs_client,
     Inspiration for this method came from:
     https://github.com/googleapis/google-cloud-python/issues/920#issuecomment-326125992
     :param gcs_client:
+    :param bucket:
     :param prefix_path:
     :param recursive: Whether to recursively search for folders
     :return: list of GCS URIs
     """
-    if not prefix_path.endswith('/'):
+
+    if (prefix_path is not None and not prefix_path.endswith('/') and
+            prefix_path is not ''):
         prefix_path = f"{prefix_path}/"
     resp = gcs_client.list_blobs(bucket, prefix=prefix_path, delimiter='/')
     # Iterate through response pages to retrieve only

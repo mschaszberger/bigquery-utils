@@ -25,7 +25,6 @@ import gcs_ocn_bq_ingest.common.utils
 from tests import utils as test_utils
 
 TEST_DIR = os.path.realpath(os.path.dirname(__file__) + "/..")
-LOAD_JOB_POLLING_TIMEOUT = 20  # seconds
 
 
 @pytest.mark.IT
@@ -163,17 +162,7 @@ def test_external_query_partitioned(bq, gcs_partitioned_data,
     if not all((blob.exists() for blob in gcs_external_partitioned_config)):
         raise google.cloud.exceptions.NotFound("config objects must exist")
 
-    for blob in gcs_partitioned_data:
-        if not blob.exists():
-            raise google.cloud.exceptions.NotFound(
-                "test data objects must exist")
-        test_event = {
-            "attributes": {
-                "bucketId": blob.bucket.name,
-                "objectId": blob.name
-            }
-        }
-        gcs_ocn_bq_ingest.main.main(test_event, None)
+    test_utils.trigger_gcf_for_each_blob(gcs_partitioned_data)
     expected_num_rows = 0
     for part in [
             "$2017041101",
@@ -286,15 +275,20 @@ def test_external_query_with_bad_statement(bq, gcs_data,
 
 
 @pytest.mark.IT
-def test_get_batches_for_prefix_recursive(gcs, gcs_partitioned_data,
-                                          gcs_external_partitioned_config,
-                                          dest_dataset, mock_env):
+def test_get_batches_for_gsurl_recursive(gcs, gcs_bucket,
+                                         gcs_partitioned_parquet_data,
+                                         gcs_external_partitioned_config,
+                                         dest_dataset, mock_env):
     """tests that all blobs are recursively found for a given prefix
     """
-    if not all((blob.exists() for blob in gcs_external_partitioned_config)):
-        raise google.cloud.exceptions.NotFound("config objects must exist")
-    blob = gcs_partitioned_data[0]
-    gcs_ocn_bq_ingest.common.utils.get_batches_for_gsurl(
-        gcs,
-        f"gs://{blob.bucket.name}/{dest_dataset.dataset_id}",
-        recursive=True)
+    test_utils.check_blobs_exist(gcs_external_partitioned_config,
+                                 "config objects must exist")
+    test_utils.check_blobs_exist(gcs_partitioned_parquet_data,
+                                 "test data objects must exist")
+    batches = gcs_ocn_bq_ingest.common.utils.get_batches_for_gsurl(
+        gcs, f"gs://{gcs_bucket.name}/", recursive=True)
+    total_data_objects = 0
+    for batch in batches:
+        print(batch)
+        total_data_objects += len(batch)
+    assert total_data_objects == 4
