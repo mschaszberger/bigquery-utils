@@ -235,7 +235,7 @@ def start_backfill_subscriber_if_not_running(
 
     created a backfill file for the table prefix if not exists.
     """
-    if not gcs_client:
+    if gcs_client is None:
         gcs_client = storage.Client(client_info=constants.CLIENT_INFO)
     start_backfill = True
     # Do not start subscriber until START_BACKFILL_FILENAME has been dropped
@@ -245,7 +245,7 @@ def start_backfill_subscriber_if_not_running(
             f"{table_prefix}/{constants.START_BACKFILL_FILENAME}")
         start_backfill = start_backfill_blob.exists(client=gcs_client)
         if not start_backfill:
-            print("note triggering backfill because"
+            print("Not triggering backfill because"
                   f"gs://{start_backfill_blob.bucket.name}/"
                   f"{start_backfill_blob.name} was not found.")
 
@@ -254,9 +254,12 @@ def start_backfill_subscriber_if_not_running(
         backfill_blob = bkt.blob(
             f"{table_prefix}/{constants.BACKFILL_FILENAME}")
         try:
-            backfill_blob.upload_from_string("",
-                                             if_generation_match=0,
-                                             client=gcs_client)
+            backfill_blob.upload_from_string(
+                "",
+                # Setting if_generation_match below to 0 makes the operation
+                # succeed only if there are no live versions of the blob.
+                if_generation_match=0,
+                client=gcs_client)
             print("triggered backfill with "
                   f"gs://{backfill_blob.bucket.name}/{backfill_blob.name} "
                   f"created at {backfill_blob.time_created}.")
@@ -304,7 +307,7 @@ def subscriber_monitor(gcs_client: Optional[storage.Client],
     we always handle this race condition either in this monitor or in the
     subscriber itself.
     """
-    if not gcs_client:
+    if gcs_client is None:
         gcs_client = storage.Client(client_info=constants.CLIENT_INFO)
     backfill_blob = start_backfill_subscriber_if_not_running(
         gcs_client, bkt, utils.get_table_prefix(object_id))
@@ -350,9 +353,9 @@ def _get_clients_if_none(
     """
     print("instantiating missing clients in backlog subscriber this should only"
           " happen during integration tests.")
-    if not gcs_client:
+    if gcs_client is None:
         gcs_client = storage.Client(client_info=constants.CLIENT_INFO)
-    if not bq_client:
+    if bq_client is None:
         default_query_config = bigquery.QueryJobConfig()
         default_query_config.use_legacy_sql = False
         default_query_config.labels = constants.DEFAULT_JOB_LABELS

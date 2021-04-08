@@ -259,7 +259,7 @@ def get_batches_for_gsurl(gcs_client: storage.Client,
                                                        prefix_path,
                                                        recursive=recursive)
     folders.add(prefix_path)
-    blobs: List[storage.blob.Blob] = []
+    blobs: List[storage.Blob] = []
     for folder in folders:
         blobs += (list(
             gcs_client.list_blobs(bucket, prefix=folder, delimiter="/")))

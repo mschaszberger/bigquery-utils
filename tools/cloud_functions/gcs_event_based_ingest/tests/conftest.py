@@ -49,7 +49,7 @@ def error() -> error_reporting.Client:
 
 
 @pytest.fixture
-def gcs_bucket(request, gcs) -> storage.bucket.Bucket:
+def gcs_bucket(request, gcs) -> storage.Bucket:
     """GCS bucket for test artifacts"""
     bucket = gcs.create_bucket(str(uuid.uuid4()))
     bucket.versioning_enabled = True
@@ -131,12 +131,11 @@ def dest_table(request, bq, mock_env, dest_dataset) -> bigquery.Table:
     return table
 
 
-@pytest.fixture(scope="function")
-def gcs_data(request, gcs_bucket, dest_dataset,
-             dest_table) -> storage.blob.Blob:
-    data_objs: List[storage.blob.Blob] = []
+@pytest.fixture
+def gcs_data(request, gcs_bucket, dest_dataset, dest_table) -> storage.Blob:
+    data_objs: List[storage.Blob] = []
     for test_file in ["part-m-00000", "part-m-00001", "_SUCCESS"]:
-        data_obj: storage.blob.Blob = gcs_bucket.blob("/".join([
+        data_obj: storage.Blob = gcs_bucket.blob("/".join([
             f"{dest_dataset.project}.{dest_dataset.dataset_id}",
             dest_table.table_id, test_file
         ]))
@@ -154,12 +153,12 @@ def gcs_data(request, gcs_bucket, dest_dataset,
     return data_objs
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def gcs_data_under_sub_dirs(request, gcs_bucket, dest_dataset,
-                            dest_table) -> storage.blob.Blob:
+                            dest_table) -> storage.Blob:
     data_objs = []
     for test_file in ["part-m-00000", "part-m-00001", "_SUCCESS"]:
-        data_obj: storage.blob.Blob = gcs_bucket.blob("/".join([
+        data_obj: storage.Blob = gcs_bucket.blob("/".join([
             f"{dest_dataset.project}.{dest_dataset.dataset_id}",
             dest_table.table_id, "foo", "bar", "baz", test_file
         ]))
@@ -177,11 +176,11 @@ def gcs_data_under_sub_dirs(request, gcs_bucket, dest_dataset,
     return data_objs
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def gcs_truncating_load_config(request, gcs_bucket, dest_dataset,
-                               dest_table) -> List[storage.blob.Blob]:
-    config_objs: List[storage.blob.Blob] = []
-    config_obj: storage.blob.Blob = gcs_bucket.blob("/".join([
+                               dest_table) -> List[storage.Blob]:
+    config_objs: List[storage.Blob] = []
+    config_obj: storage.Blob = gcs_bucket.blob("/".join([
         dest_dataset.dataset_id,
         dest_table.table_id,
         "_config",
@@ -200,16 +199,16 @@ def gcs_truncating_load_config(request, gcs_bucket, dest_dataset,
     return config_objs
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def gcs_batched_data(request, gcs_bucket, dest_dataset,
-                     dest_table) -> List[storage.blob.Blob]:
+                     dest_table) -> List[storage.Blob]:
     """
   upload two batches of data
   """
-    data_objs: List[storage.blob.Blob] = []
+    data_objs: List[storage.Blob] = []
     for batch in ["batch0", "batch1"]:
         for test_file in ["part-m-00000", "part-m-00001", "_SUCCESS"]:
-            data_obj: storage.blob.Blob = gcs_bucket.blob("/".join([
+            data_obj: storage.Blob = gcs_bucket.blob("/".join([
                 dest_dataset.dataset_id, dest_table.table_id, batch, test_file
             ]))
             data_obj.upload_from_filename(
@@ -228,7 +227,7 @@ def gcs_batched_data(request, gcs_bucket, dest_dataset,
 
 @pytest.fixture
 def gcs_external_config(request, gcs_bucket, dest_dataset,
-                        dest_table) -> List[storage.blob.Blob]:
+                        dest_table) -> List[storage.Blob]:
     config_objs = []
     sql_obj = gcs_bucket.blob("/".join([
         f"{dest_dataset.project}.{dest_dataset.dataset_id}",
@@ -277,7 +276,7 @@ def gcs_external_config(request, gcs_bucket, dest_dataset,
 
 @pytest.fixture
 def gcs_destination_config(request, gcs_bucket, dest_dataset,
-                           dest_partitioned_table) -> List[storage.blob.Blob]:
+                           dest_partitioned_table) -> List[storage.Blob]:
     """
     This tests that a load.json file with destinationTable specified is used
     to load data.
@@ -289,7 +288,7 @@ def gcs_destination_config(request, gcs_bucket, dest_dataset,
     :return:
     """
     config_objs = []
-    config_obj: storage.blob.Blob = gcs_bucket.blob("/".join([
+    config_obj: storage.Blob = gcs_bucket.blob("/".join([
         "_config",
         "load.json",
     ]))
@@ -324,13 +323,13 @@ def gcs_destination_config(request, gcs_bucket, dest_dataset,
     return config_objs
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def gcs_partitioned_data(request, gcs_bucket, dest_dataset,
-                         dest_partitioned_table) -> List[storage.blob.Blob]:
+                         dest_partitioned_table) -> List[storage.Blob]:
     data_objs = []
     for partition in ["$2017041101", "$2017041102"]:
         for test_file in ["nyc_311.csv", "_SUCCESS"]:
-            data_obj: storage.blob.Blob = gcs_bucket.blob("/".join([
+            data_obj: storage.Blob = gcs_bucket.blob("/".join([
                 dest_dataset.dataset_id, dest_partitioned_table.table_id,
                 partition, test_file
             ]))
@@ -349,17 +348,16 @@ def gcs_partitioned_data(request, gcs_bucket, dest_dataset,
     return data_objs
 
 
-@pytest.fixture(scope="function")
-def gcs_partitioned_parquet_data(
-        request, gcs_bucket, dest_dataset,
-        dest_partitioned_table) -> List[storage.blob.Blob]:
+@pytest.fixture
+def gcs_partitioned_parquet_data(request, gcs_bucket, dest_dataset,
+                                 dest_partitioned_table) -> List[storage.Blob]:
     data_objs = []
     for partition in ["$2017041101", "$2017041102"]:
         for test_file in [
                 "nyc311_25_rows_00.parquet", "nyc311_25_rows_01.parquet",
                 "_SUCCESS"
         ]:
-            data_obj: storage.blob.Blob = gcs_bucket.blob("/".join(
+            data_obj: storage.Blob = gcs_bucket.blob("/".join(
                 [partition, test_file]))
             data_obj.upload_from_filename(
                 os.path.join(TEST_DIR, "resources", "test-data", "nyc_311",
@@ -376,14 +374,14 @@ def gcs_partitioned_parquet_data(
     return data_objs
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def gcs_split_path_partitioned_data(
         request, gcs_bucket, dest_dataset,
-        dest_partitioned_table) -> List[storage.blob.Blob]:
+        dest_partitioned_table) -> List[storage.Blob]:
     data_objs = []
     for partition in ["$2017041101", "$2017041102"]:
         for test_file in ["nyc_311.csv", "_SUCCESS"]:
-            data_obj: storage.blob.Blob = gcs_bucket.blob("/".join([
+            data_obj: storage.Blob = gcs_bucket.blob("/".join([
                 "foo",
                 "bar",
                 "baz",
@@ -409,16 +407,16 @@ def gcs_split_path_partitioned_data(
     return data_objs
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def gcs_split_path_partitioned_parquet_data(
         request, gcs_bucket, dest_dataset,
-        dest_partitioned_table) -> List[storage.blob.Blob]:
+        dest_partitioned_table) -> List[storage.Blob]:
     data_objs = []
     for partition in ["$2017041101", "$2017041102"]:
         for test_file in [
                 "nyc311_25_rows_00.parquet", "nyc311_25_rows_01.parquet"
         ]:
-            data_obj: storage.blob.Blob = gcs_bucket.blob("/".join([
+            data_obj: storage.Blob = gcs_bucket.blob("/".join([
                 "foo",
                 "bar",
                 "baz",
@@ -434,7 +432,7 @@ def gcs_split_path_partitioned_parquet_data(
                              partition, test_file))
             data_objs.append(data_obj)
         # Add _SUCCESS file under the hour partition folder
-        data_obj: storage.blob.Blob = gcs_bucket.blob("/".join([
+        data_obj: storage.Blob = gcs_bucket.blob("/".join([
             "foo",
             "bar",
             "baz",
@@ -459,7 +457,7 @@ def gcs_split_path_partitioned_parquet_data(
     return data_objs
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def dest_partitioned_table(request, bq: bigquery.Client, mock_env,
                            dest_dataset) -> bigquery.Table:
     public_table: bigquery.Table = bq.get_table(
@@ -524,7 +522,7 @@ def dest_ordered_update_table(request, gcs, gcs_bucket, bq, mock_env,
             json.load(schema_file))
 
     table = bigquery.Table(
-        f"{os.environ.get('GCP_PROJECT')}.{dest_dataset.dataset_id}"
+        f"{dest_dataset.project}.{dest_dataset.dataset_id}"
         f".cf_test_ordering_{str(uuid.uuid4()).replace('-','_')}",
         schema=schema,
     )
@@ -544,7 +542,7 @@ def dest_ordered_update_table(request, gcs, gcs_bucket, bq, mock_env,
         job_id_prefix=gcs_ocn_bq_ingest.common.constants.DEFAULT_JOB_PREFIX)
 
     # The subscriber will be responsible for cleaning up this file.
-    bqlock_obj: storage.blob.Blob = gcs_bucket.blob("/".join([
+    bqlock_obj: storage.Blob = gcs_bucket.blob("/".join([
         f"{dest_dataset.project}.{dest_dataset.dataset_id}", table.table_id,
         "_bqlock"
     ]))
@@ -560,12 +558,11 @@ def dest_ordered_update_table(request, gcs, gcs_bucket, bq, mock_env,
     return table
 
 
-@pytest.fixture(scope="function")
-def gcs_ordered_update_data(
-        request, gcs_bucket, dest_dataset,
-        dest_ordered_update_table) -> List[storage.blob.Blob]:
+@pytest.fixture
+def gcs_ordered_update_data(request, gcs_bucket, dest_dataset,
+                            dest_ordered_update_table) -> List[storage.Blob]:
     data_objs = []
-    older_success_blob: storage.blob.Blob = gcs_bucket.blob("/".join([
+    older_success_blob: storage.Blob = gcs_bucket.blob("/".join([
         f"{dest_dataset.project}.{dest_dataset.dataset_id}",
         dest_ordered_update_table.table_id, "00", "_SUCCESS"
     ]))
@@ -579,7 +576,7 @@ def gcs_ordered_update_data(
     }
     for chunk in chunks:
         for test_file in ["data.csv", "_SUCCESS"]:
-            data_obj: storage.blob.Blob = gcs_bucket.blob("/".join([
+            data_obj: storage.Blob = gcs_bucket.blob("/".join([
                 f"{dest_dataset.project}.{dest_dataset.dataset_id}",
                 dest_ordered_update_table.table_id, chunk, test_file
             ]))
@@ -597,9 +594,9 @@ def gcs_ordered_update_data(
     return list(filter(lambda do: do.name.endswith("_SUCCESS"), data_objs))
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture
 def gcs_backlog(request, gcs, gcs_bucket,
-                gcs_ordered_update_data) -> List[storage.blob.Blob]:
+                gcs_ordered_update_data) -> List[storage.Blob]:
     data_objs = []
 
     # We will deal with the last incremental in the test itself to test the
@@ -686,7 +683,7 @@ def gcs_external_update_config(request, gcs_bucket, dest_dataset,
 @pytest.fixture
 def gcs_external_partitioned_config(
         request, bq, gcs_bucket, dest_dataset,
-        dest_partitioned_table) -> List[storage.blob.Blob]:
+        dest_partitioned_table) -> List[storage.Blob]:
     config_objs = []
     sql_obj = gcs_bucket.blob("/".join([
         dest_dataset.dataset_id,
@@ -734,7 +731,7 @@ def gcs_external_partitioned_config(
 @pytest.fixture
 def gcs_external_partitioned_parquet_config(
         request, bq, gcs_bucket, dest_dataset,
-        dest_partitioned_table) -> List[storage.blob.Blob]:
+        dest_partitioned_table) -> List[storage.Blob]:
     config_objs = []
     # Upload SQL query used to load table
     sql_obj = gcs_bucket.blob("/".join([
@@ -769,7 +766,7 @@ def no_use_error_reporting(monkeypatch):
 @pytest.fixture
 def gcs_external_config_bad_statement(
         request, gcs_bucket, dest_dataset, dest_table,
-        no_use_error_reporting) -> List[storage.blob.Blob]:
+        no_use_error_reporting) -> List[storage.Blob]:
     config_objs = []
     sql_obj = gcs_bucket.blob("/".join([
         f"{dest_dataset.project}.{dest_dataset.dataset_id}",

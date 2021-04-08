@@ -24,7 +24,7 @@ import gcs_ocn_bq_ingest.main
 LOAD_JOB_POLLING_TIMEOUT = 20  # seconds
 
 
-def trigger_gcf_for_each_blob(blobs: List[storage.blob.Blob]):
+def trigger_gcf_for_each_blob(blobs: List[storage.Blob]):
     for blob in blobs:
         test_event = {
             "attributes": {
@@ -35,7 +35,7 @@ def trigger_gcf_for_each_blob(blobs: List[storage.blob.Blob]):
         gcs_ocn_bq_ingest.main.main(test_event, None)
 
 
-def check_blobs_exist(blobs: List[storage.blob.Blob], error_msg_if_missing):
+def check_blobs_exist(blobs: List[storage.Blob], error_msg_if_missing):
     if not all(blob.exists() for blob in blobs):
         raise google.cloud.exceptions.NotFound(error_msg_if_missing)
 

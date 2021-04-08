@@ -31,13 +31,6 @@ from tests import utils as test_utils
 
 TEST_DIR = os.path.realpath(os.path.dirname(__file__) + "/..")
 
-# Testing that the subscriber does not get choked up by a common race condition
-# is crucial to ensuring this solution works.
-# This parameter is for running the subscriber tests many times.
-# During development it can be helpful to tweak this up or down as you are
-# experimenting.
-NUM_TRIES_SUBSCRIBER_TESTS = 25
-
 
 @pytest.mark.IT
 @pytest.mark.ORDERING
@@ -129,7 +122,6 @@ def test_backlog_publisher_with_existing_backfill_file(gcs, gcs_bucket,
 
 @pytest.mark.IT
 @pytest.mark.ORDERING
-@pytest.mark.repeat(NUM_TRIES_SUBSCRIBER_TESTS)
 def test_backlog_subscriber_in_order_with_new_batch_after_exit(
         bq, gcs, gcs_bucket, dest_dataset, dest_ordered_update_table,
         gcs_ordered_update_data, gcs_external_update_config, gcs_backlog,
@@ -171,7 +163,7 @@ def test_backlog_subscriber_in_order_with_new_batch_after_exit(
 
             # Now we will test what happens when the publisher posts another batch after
             # the backlog subscriber has exited.
-            backfill_blob = _post_a_new_batch(gcs_bucket, dest_dataset,
+            backfill_blob = _post_a_new_batch(gcs_bucket,
                                               dest_ordered_update_table)
             _run_subscriber(gcs, bq, backfill_blob)
 
@@ -189,12 +181,11 @@ def test_backlog_subscriber_in_order_with_new_batch_after_exit(
 
 @pytest.mark.IT
 @pytest.mark.ORDERING
-@pytest.mark.repeat(NUM_TRIES_SUBSCRIBER_TESTS)
 def test_backlog_subscriber_in_order_with_new_batch_while_running(
-        bq, gcs, gcs_bucket, dest_dataset, dest_ordered_update_table,
-        gcs_ordered_update_data,
-        gcs_external_update_config: List[storage.blob.Blob], gcs_backlog,
-        mock_env):
+        bq, gcs, gcs_bucket, dest_ordered_update_table: bigquery.Table,
+        gcs_ordered_update_data: List[storage.Blob],
+        gcs_external_update_config: List[storage.Blob],
+        gcs_backlog: List[storage.Blob], mock_env):
     """Test functionality of backlog subscriber when new batches are added
     before the subscriber is done finishing the existing backlog.
 
@@ -214,11 +205,6 @@ def test_backlog_subscriber_in_order_with_new_batch_while_running(
         if basename == gcs_ocn_bq_ingest.common.constants.BACKFILL_FILENAME:
             backfill_blob = storage.Blob.from_string(f"gs://{blob.bucket.name}/"
                                                      f"{blob.name}")
-            dataset = bigquery.Dataset(
-                f"{dest_dataset.project}.{dest_dataset.dataset_id}")
-            table = bigquery.Table(
-                f"{dest_dataset.project}.{dest_dataset.dataset_id}."
-                f"{dest_ordered_update_table.table_id}")
             bkt = storage.Bucket(None, gcs_bucket.name)
             claim_blob: storage.Blob = blob.bucket.blob(
                 blob.name.replace(
@@ -232,12 +218,13 @@ def test_backlog_subscriber_in_order_with_new_batch_while_running(
                 while not claim_blob.exists():
                     pass
                 res_backlog_publisher = pool.apply_async(
-                    _post_a_new_batch, (bkt, dataset, table))
+                    _post_a_new_batch, (bkt, dest_ordered_update_table))
                 res_backlog_publisher.wait()
                 res_monitor = pool.apply_async(
                     gcs_ocn_bq_ingest.common.ordering.subscriber_monitor,
-                    (None, bkt,
-                     f"{dataset.project}.{dataset.dataset_id}/{table.table_id}/"
+                    (None, bkt, f"{dest_ordered_update_table.project}"
+                     f".{dest_ordered_update_table.dataset_id}/"
+                     f"{dest_ordered_update_table.table_id}/"
                      f"_backlog/04/_SUCCESS"))
 
                 if res_monitor.get():
@@ -275,13 +262,14 @@ def _run_subscriber(
         gcs_client, bq_client, backfill_blob, time.monotonic())
 
 
-def _post_a_new_batch(gcs_bucket, dest_dataset, dest_ordered_update_table):
+def _post_a_new_batch(gcs_bucket, dest_ordered_update_table):
     # We may run this in another process and cannot pickle client objects
     gcs = storage.Client()
     data_obj: storage.Blob
     for test_file in ["data.csv", "_SUCCESS"]:
         data_obj = gcs_bucket.blob("/".join([
-            f"{dest_dataset.project}.{dest_dataset.dataset_id}",
+            f"{dest_ordered_update_table.project}."
+            f"{dest_ordered_update_table.dataset_id}",
             dest_ordered_update_table.table_id, "04", test_file
         ]))
         data_obj.upload_from_filename(os.path.join(TEST_DIR, "resources",
