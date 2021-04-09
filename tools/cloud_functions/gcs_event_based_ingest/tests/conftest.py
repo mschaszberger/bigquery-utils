@@ -49,7 +49,7 @@ def error() -> error_reporting.Client:
 
 
 @pytest.fixture
-def gcs_bucket(request, gcs) -> storage.Bucket:
+def gcs_bucket(request, gcs: storage.Client) -> storage.Bucket:
     """GCS bucket for test artifacts"""
     bucket = gcs.create_bucket(str(uuid.uuid4()))
     bucket.versioning_enabled = True
@@ -62,15 +62,13 @@ def gcs_bucket(request, gcs) -> storage.Bucket:
     load_json_blob.upload_from_string(json.dumps(load_config_json))
 
     def teardown():
-        load_json_blob.delete()
-        bucket.versioning_enabled = False
-        bucket.patch()
-        for obj in gcs.list_blobs(bucket_or_name=bucket, versions=True):
-            obj.delete()
+        # Since bucket has object versioning enabled, you must
+        # delete all versions of objects before you can delete the bucket.
+        for blob in gcs.list_blobs(bucket, versions=True):
+            blob.delete()
         bucket.delete(force=True)
 
     request.addfinalizer(teardown)
-
     return bucket
 
 
@@ -143,13 +141,6 @@ def gcs_data(request, gcs_bucket, dest_dataset, dest_table) -> storage.Blob:
             os.path.join(TEST_DIR, "resources", "test-data", "nation",
                          test_file))
         data_objs.append(data_obj)
-
-    def teardown():
-        for do in data_objs:
-            if do.exists:
-                do.delete()
-
-    request.addfinalizer(teardown)
     return data_objs
 
 
@@ -166,13 +157,6 @@ def gcs_data_under_sub_dirs(request, gcs_bucket, dest_dataset,
             os.path.join(TEST_DIR, "resources", "test-data", "nation",
                          test_file))
         data_objs.append(data_obj)
-
-    def teardown():
-        for do in data_objs:
-            if do.exists():
-                do.delete()
-
-    request.addfinalizer(teardown)
     return data_objs
 
 
@@ -189,13 +173,6 @@ def gcs_truncating_load_config(request, gcs_bucket, dest_dataset,
     config_obj.upload_from_string(
         json.dumps({"writeDisposition": "WRITE_TRUNCATE"}))
     config_objs.append(config_obj)
-
-    def teardown():
-        for do in config_objs:
-            if do.exists():
-                do.delete()
-
-    request.addfinalizer(teardown)
     return config_objs
 
 
@@ -215,13 +192,6 @@ def gcs_batched_data(request, gcs_bucket, dest_dataset,
                 os.path.join(TEST_DIR, "resources", "test-data", "nation",
                              test_file))
             data_objs.append(data_obj)
-
-    def teardown():
-        for do in data_objs:
-            if do.exists():
-                do.delete()
-
-    request.addfinalizer(teardown)
     return data_objs
 
 
@@ -264,13 +234,6 @@ def gcs_external_config(request, gcs_bucket, dest_dataset,
     config_obj.upload_from_string(json.dumps(config))
     config_objs.append(sql_obj)
     config_objs.append(config_obj)
-
-    def teardown():
-        for do in config_objs:
-            if do.exists():
-                do.delete()
-
-    request.addfinalizer(teardown)
     return config_objs
 
 
@@ -313,13 +276,6 @@ def gcs_destination_config(request, gcs_bucket, dest_dataset,
             )
         }))
     config_objs.append(config_obj)
-
-    def teardown():
-        for do in config_objs:
-            if do.exists():
-                do.delete()
-
-    request.addfinalizer(teardown)
     return config_objs
 
 
@@ -337,14 +293,6 @@ def gcs_partitioned_data(request, gcs_bucket, dest_dataset,
                 os.path.join(TEST_DIR, "resources", "test-data", "nyc_311",
                              partition, test_file))
             data_objs.append(data_obj)
-
-    def teardown():
-        for dobj in data_objs:
-            # we expect some backfill files to be removed by the cloud function.
-            if dobj.exists():
-                dobj.delete()
-
-    request.addfinalizer(teardown)
     return data_objs
 
 
@@ -363,14 +311,6 @@ def gcs_partitioned_parquet_data(request, gcs_bucket, dest_dataset,
                 os.path.join(TEST_DIR, "resources", "test-data", "nyc_311",
                              partition, test_file))
             data_objs.append(data_obj)
-
-    def teardown():
-        for dobj in data_objs:
-            # we expect some backfill files to be removed by the cloud function.
-            if dobj.exists():
-                dobj.delete()
-
-    request.addfinalizer(teardown)
     return data_objs
 
 
@@ -396,14 +336,6 @@ def gcs_split_path_partitioned_data(
                 os.path.join(TEST_DIR, "resources", "test-data", "nyc_311",
                              partition, test_file))
             data_objs.append(data_obj)
-
-    def teardown():
-        for dobj in data_objs:
-            # we expect some backfill files to be removed by the cloud function.
-            if dobj.exists():
-                dobj.delete()
-
-    request.addfinalizer(teardown)
     return data_objs
 
 
@@ -446,14 +378,6 @@ def gcs_split_path_partitioned_parquet_data(
             os.path.join(TEST_DIR, "resources", "test-data", "nyc_311",
                          partition, "_SUCCESS"))
         data_objs.append(data_obj)
-
-    def teardown():
-        for dobj in data_objs:
-            # we expect some backfill files to be removed by the cloud function.
-            if dobj.exists():
-                dobj.delete()
-
-    request.addfinalizer(teardown)
     return data_objs
 
 
@@ -477,11 +401,6 @@ def dest_partitioned_table(request, bq: bigquery.Client, mock_env,
     table.time_partitioning.field = "created_date"
 
     table = bq.create_table(table)
-
-    def teardown():
-        bq.delete_table(table, not_found_ok=True)
-
-    request.addfinalizer(teardown)
     return table
 
 
@@ -548,13 +467,6 @@ def dest_ordered_update_table(request, gcs, gcs_bucket, bq, mock_env,
     ]))
 
     bqlock_obj.upload_from_string(job.job_id)
-
-    def teardown():
-        bq.delete_table(table, not_found_ok=True)
-        if bqlock_obj.exists():
-            bqlock_obj.delete()
-
-    request.addfinalizer(teardown)
     return table
 
 
@@ -584,13 +496,6 @@ def gcs_ordered_update_data(request, gcs_bucket, dest_dataset,
                 os.path.join(TEST_DIR, "resources", "test-data", "ordering",
                              chunk, test_file))
             data_objs.append(data_obj)
-
-    def teardown():
-        for dobj in data_objs:
-            if dobj.exists():
-                dobj.delete()
-
-    request.addfinalizer(teardown)
     return list(filter(lambda do: do.name.endswith("_SUCCESS"), data_objs))
 
 
@@ -609,13 +514,6 @@ def gcs_backlog(request, gcs, gcs_bucket,
             )
         backlog_blob.upload_from_string("")
         data_objs.append(backlog_blob)
-
-    def teardown():
-        for dobj in data_objs:
-            if dobj.exists():
-                dobj.delete()
-
-    request.addfinalizer(teardown)
     return list(filter(lambda do: do.name.endswith("_SUCCESS"), data_objs))
 
 
@@ -670,13 +568,6 @@ def gcs_external_update_config(request, gcs_bucket, dest_dataset,
     config_objs.append(sql_obj)
     config_objs.append(config_obj)
     config_objs.append(backfill_blob)
-
-    def teardown():
-        for do in config_objs:
-            if do.exists():
-                do.delete()
-
-    request.addfinalizer(teardown)
     return config_objs
 
 
@@ -718,13 +609,6 @@ def gcs_external_partitioned_config(
     config_obj.upload_from_string(json.dumps(config))
     config_objs.append(sql_obj)
     config_objs.append(config_obj)
-
-    def teardown():
-        for do in config_objs:
-            if do.exists:
-                do.delete()
-
-    request.addfinalizer(teardown)
     return config_objs
 
 
@@ -748,13 +632,6 @@ def gcs_external_partitioned_parquet_config(
         "sourceFormat": "PARQUET",
     }))
     config_objs.append(config_obj)
-
-    def teardown():
-        for do in config_objs:
-            if do.exists:
-                do.delete()
-
-    request.addfinalizer(teardown)
     return config_objs
 
 
@@ -804,11 +681,4 @@ def gcs_external_config_bad_statement(
     config_obj.upload_from_string(json.dumps(config))
     config_objs.append(sql_obj)
     config_objs.append(config_obj)
-
-    def teardown():
-        for do in config_objs:
-            if do.exists():
-                do.delete()
-
-    request.addfinalizer(teardown)
     return config_objs
