@@ -34,7 +34,7 @@ TEST_DIR = os.path.realpath(os.path.dirname(__file__) + "/..")
 
 @pytest.mark.IT
 @pytest.mark.ORDERING
-def test_backlog_publisher(gcs, gcs_bucket, gcs_partitioned_data, mock_env):
+def test_backlog_publisher(gcs, gcs_bucket, gcs_partitioned_data):
     """Test basic functionality of backlog_publisher
     Drop two success files.
     Assert that both success files are added to backlog and backfill file
@@ -77,8 +77,7 @@ def test_backlog_publisher(gcs, gcs_bucket, gcs_partitioned_data, mock_env):
 def test_backlog_publisher_with_existing_backfill_file(gcs, gcs_bucket,
                                                        dest_dataset,
                                                        dest_partitioned_table,
-                                                       gcs_partitioned_data,
-                                                       mock_env):
+                                                       gcs_partitioned_data):
     """Test basic functionality of backlog_publisher when the backfill is
     already running. It should not repost this backfill file.
     """
@@ -124,8 +123,7 @@ def test_backlog_publisher_with_existing_backfill_file(gcs, gcs_bucket,
 @pytest.mark.ORDERING
 def test_backlog_subscriber_in_order_with_new_batch_after_exit(
         bq, gcs, gcs_bucket, dest_dataset, dest_ordered_update_table,
-        gcs_ordered_update_data, gcs_external_update_config, gcs_backlog,
-        mock_env):
+        gcs_ordered_update_data, gcs_external_update_config, gcs_backlog):
     """Test basic functionality of backlog subscriber.
     Populate a backlog with 3 files that make updates where we can assert
     that these jobs were applied in order.
@@ -161,8 +159,8 @@ def test_backlog_subscriber_in_order_with_new_batch_after_exit(
                     "alpha_update"] == "ABC", "backlog not applied in order"
             assert num_rows == expected_num_rows
 
-            # Now we will test what happens when the publisher posts another batch after
-            # the backlog subscriber has exited.
+            # Now we will test what happens when the publisher posts another
+            # batch after the backlog subscriber has exited.
             backfill_blob = _post_a_new_batch(gcs_bucket,
                                               dest_ordered_update_table)
             _run_subscriber(gcs, bq, backfill_blob)
@@ -185,7 +183,7 @@ def test_backlog_subscriber_in_order_with_new_batch_while_running(
         bq, gcs, gcs_bucket, dest_ordered_update_table: bigquery.Table,
         gcs_ordered_update_data: List[storage.Blob],
         gcs_external_update_config: List[storage.Blob],
-        gcs_backlog: List[storage.Blob], mock_env):
+        gcs_backlog: List[storage.Blob]):
     """Test functionality of backlog subscriber when new batches are added
     before the subscriber is done finishing the existing backlog.
 
@@ -214,7 +212,8 @@ def test_backlog_subscriber_in_order_with_new_batch_while_running(
             with multiprocessing.Pool(processes=3) as pool:
                 res_subscriber = pool.apply_async(_run_subscriber,
                                                   (None, None, backfill_blob))
-                # wait for existence of claim blob to ensure subscriber is running.
+                # wait for existence of claim blob
+                # to ensure subscriber is running.
                 while not claim_blob.exists():
                     pass
                 res_backlog_publisher = pool.apply_async(
@@ -253,11 +252,8 @@ def test_backlog_subscriber_in_order_with_new_batch_while_running(
             assert num_rows == expected_num_rows
 
 
-def _run_subscriber(
-    gcs_client: Optional[storage.Client],
-    bq_client: Optional[bigquery.Client],
-    backfill_blob,
-):
+def _run_subscriber(gcs_client: Optional[storage.Client],
+                    bq_client: Optional[bigquery.Client], backfill_blob):
     gcs_ocn_bq_ingest.common.ordering.backlog_subscriber(
         gcs_client, bq_client, backfill_blob, time.monotonic())
 

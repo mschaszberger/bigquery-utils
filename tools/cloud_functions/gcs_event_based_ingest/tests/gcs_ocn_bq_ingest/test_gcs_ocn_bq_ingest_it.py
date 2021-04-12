@@ -17,8 +17,6 @@ from typing import List
 
 import google.cloud.exceptions
 import pytest
-from google.cloud import bigquery
-from google.cloud import storage
 
 import gcs_ocn_bq_ingest.main
 import gcs_ocn_bq_ingest.common.utils
@@ -28,7 +26,7 @@ TEST_DIR = os.path.realpath(os.path.dirname(__file__) + "/..")
 
 
 @pytest.mark.IT
-def test_load_job(bq, gcs_data, dest_dataset, dest_table, mock_env):
+def test_load_job(bq, gcs_data, dest_table):
     """tests basic single invocation with load job"""
     test_utils.check_blobs_exist(gcs_data, "test data objects must exist")
     test_utils.trigger_gcf_for_each_blob(gcs_data)
@@ -39,7 +37,7 @@ def test_load_job(bq, gcs_data, dest_dataset, dest_table, mock_env):
 
 
 @pytest.mark.IT
-def test_gcf_event_schema(bq, gcs_data, dest_dataset, dest_table, mock_env):
+def test_gcf_event_schema(bq, gcs_data, dest_table):
     """tests compatibility to Cloud Functions Background Function posting the
     storage object schema
     https://cloud.google.com/storage/docs/json_api/v1/objects#resource
@@ -56,8 +54,7 @@ def test_gcf_event_schema(bq, gcs_data, dest_dataset, dest_table, mock_env):
 
 
 @pytest.mark.IT
-def test_duplicate_success_notification(bq, gcs_data, dest_dataset, dest_table,
-                                        mock_env):
+def test_duplicate_success_notification(bq, gcs_data, dest_table):
     """tests behavior with two notifications for the same success file."""
     test_utils.check_blobs_exist(gcs_data, "test data objects must exist")
     test_utils.trigger_gcf_for_each_blob(gcs_data)
@@ -68,9 +65,12 @@ def test_duplicate_success_notification(bq, gcs_data, dest_dataset, dest_table,
 
 
 @pytest.mark.IT
-def test_load_job_truncating_batches(bq, gcs_batched_data,
-                                     gcs_truncating_load_config, dest_dataset,
-                                     dest_table, mock_env):
+def test_load_job_truncating_batches(
+    bq,
+    gcs_batched_data,
+    gcs_truncating_load_config,
+    dest_table,
+):
     """
     tests two successive batches with a load.json that dictates WRITE_TRUNCATE.
 
@@ -91,8 +91,7 @@ def test_load_job_truncating_batches(bq, gcs_batched_data,
 
 
 @pytest.mark.IT
-def test_load_job_appending_batches(bq, gcs_batched_data, dest_dataset,
-                                    dest_table, mock_env):
+def test_load_job_appending_batches(bq, gcs_batched_data, dest_table):
     """
     tests two loading batches with the default load configuration.
 
@@ -111,9 +110,13 @@ def test_load_job_appending_batches(bq, gcs_batched_data, dest_dataset,
 
 
 @pytest.mark.IT
-def test_external_query_pure(bq, gcs_data, gcs_external_config, dest_dataset,
-                             dest_table, mock_env):
-    """tests the basic external query ingrestion mechanics
+def test_external_query_pure(
+    bq,
+    gcs_data,
+    gcs_external_config,
+    dest_table,
+):
+    """tests the basic external query ingestion mechanics
     with bq_transform.sql and external.json
     """
     test_utils.check_blobs_exist(gcs_data, "test data objects must exist")
@@ -129,8 +132,8 @@ def test_external_query_pure(bq, gcs_data, gcs_external_config, dest_dataset,
 
 @pytest.mark.IT
 def test_load_job_partitioned(bq, gcs_partitioned_data,
-                              gcs_truncating_load_config, dest_dataset,
-                              dest_partitioned_table, mock_env):
+                              gcs_truncating_load_config,
+                              dest_partitioned_table):
     """
     Test loading separate partitions with WRITE_TRUNCATE
 
@@ -154,9 +157,8 @@ def test_load_job_partitioned(bq, gcs_partitioned_data,
 @pytest.mark.IT
 def test_external_query_partitioned(bq, gcs_partitioned_data,
                                     gcs_external_partitioned_config,
-                                    dest_dataset, dest_partitioned_table,
-                                    mock_env):
-    """tests the basic external query ingrestion mechanics
+                                    dest_partitioned_table):
+    """tests the basic external query ingestion mechanics
     with bq_transform.sql and external.json
     """
     if not all((blob.exists() for blob in gcs_external_partitioned_config)):
@@ -178,8 +180,8 @@ def test_external_query_partitioned(bq, gcs_partitioned_data,
 def test_external_query_partitioned_parquet(
         bq, gcs_split_path_partitioned_parquet_data,
         gcs_external_partitioned_parquet_config, gcs_destination_config,
-        dest_dataset, dest_partitioned_table, mock_env):
-    """tests the basic external query ingrestion mechanics
+        dest_partitioned_table):
+    """tests the basic external query ingestion mechanics
     with bq_transform.sql and external.json
     """
     test_utils.check_blobs_exist(
@@ -197,8 +199,8 @@ def test_external_query_partitioned_parquet(
 @pytest.mark.IT
 def test_external_query_partitioned_with_destination_config(
         bq, gcs_split_path_partitioned_data, gcs_external_partitioned_config,
-        gcs_destination_config, dest_partitioned_table, mock_env):
-    """tests the basic external query ingrestion mechanics
+        gcs_destination_config, dest_partitioned_table):
+    """tests the basic external query ingestion mechanics
     with bq_transform.sql and external.json
     """
     test_utils.check_blobs_exist(
@@ -222,8 +224,7 @@ def test_external_query_partitioned_with_destination_config(
 
 @pytest.mark.IT
 def test_look_for_config_in_parents(bq, gcs_data_under_sub_dirs,
-                                    gcs_external_config, dest_dataset,
-                                    dest_table, mock_env):
+                                    gcs_external_config, dest_table):
     """test discovery of configuration files for external query in parent
     _config paths.
     """
@@ -240,8 +241,11 @@ def test_look_for_config_in_parents(bq, gcs_data_under_sub_dirs,
 
 @pytest.mark.IT
 def test_look_for_destination_config_in_parents(
-        bq, gcs_split_path_partitioned_data, gcs_destination_config,
-        dest_dataset, dest_partitioned_table, mock_env):
+    bq,
+    gcs_split_path_partitioned_data,
+    gcs_destination_config,
+    dest_partitioned_table,
+):
     """test discovery of configuration files for destination in parent
     _config paths.
     """
@@ -259,26 +263,28 @@ def test_look_for_destination_config_in_parents(
 
 
 @pytest.mark.IT
-def test_external_query_with_bad_statement(bq, gcs_data,
-                                           gcs_external_config_bad_statement,
-                                           dest_dataset, dest_table, mock_env):
-    """tests the basic external query ingrestion mechanics
+def test_external_query_with_bad_statement(
+    gcs_data,
+    gcs_external_config_bad_statement,
+):
+    """tests the basic external query ingestion mechanics
     with bq_transform.sql and external.json
     """
     test_utils.check_blobs_exist(gcs_external_config_bad_statement,
                                  "config objects must exist")
     test_utils.check_blobs_exist(gcs_data, "test data objects must exist")
 
-    with pytest.raises(gcs_ocn_bq_ingest.common.exceptions.BigQueryJobFailure
-                      ) as exception_info:
+    with pytest.raises(gcs_ocn_bq_ingest.common.exceptions.BigQueryJobFailure):
         test_utils.trigger_gcf_for_each_blob(gcs_data)
 
 
 @pytest.mark.IT
-def test_get_batches_for_gsurl_recursive(gcs, gcs_bucket,
-                                         gcs_partitioned_parquet_data,
-                                         gcs_external_partitioned_config,
-                                         dest_dataset, mock_env):
+def test_get_batches_for_gsurl_recursive(
+    gcs,
+    gcs_bucket,
+    gcs_partitioned_parquet_data,
+    gcs_external_partitioned_config,
+):
     """tests that all blobs are recursively found for a given prefix
     """
     test_utils.check_blobs_exist(gcs_external_partitioned_config,
