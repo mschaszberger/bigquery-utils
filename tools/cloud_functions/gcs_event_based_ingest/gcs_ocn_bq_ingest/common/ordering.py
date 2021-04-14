@@ -43,12 +43,12 @@ def backlog_publisher(
     bkt = event_blob.bucket
 
     # Create an entry in _backlog for this table for this batch / success file
-    backlog_blob = success_blob_to_backlog_blob(event_blob)
+    backlog_blob = success_blob_to_backlog_blob(gcs_client, event_blob)
     backlog_blob.upload_from_string("", client=gcs_client)
     print(f"added gs://{backlog_blob.bucket.name}/{backlog_blob.name} "
           "to the backlog.")
 
-    table_prefix = utils.get_table_prefix(event_blob.name)
+    table_prefix = utils.get_table_prefix(gcs_client, event_blob)
     return start_backfill_subscriber_if_not_running(gcs_client, bkt,
                                                     table_prefix)
 
@@ -69,7 +69,7 @@ def backlog_subscriber(gcs_client: Optional[storage.Client],
     print(f"restart time is {restart_time}")
     bkt = backfill_blob.bucket
     utils.handle_duplicate_notification(gcs_client, backfill_blob)
-    table_prefix = utils.get_table_prefix(backfill_blob.name)
+    table_prefix = utils.get_table_prefix(gcs_client, backfill_blob)
     last_job_done = False
     # we will poll for job completion this long in an individual iteration of
     # the while loop (before checking if we are too close to cloud function
@@ -142,20 +142,16 @@ def wait_on_last_job(bq_client: bigquery.Client, lock_blob: storage.Blob,
         return utils.wait_on_bq_job_id(bq_client, job_id, polling_timeout)
     except (exceptions.BigQueryJobFailure,
             google.api_core.exceptions.NotFound) as err:
-        table_prefix = utils.get_table_prefix(backfill_blob.name)
         raise exceptions.BigQueryJobFailure(
             f"previous BigQuery job: {job_id} failed or could not "
             "be found. This will kill the backfill subscriber for "
-            f"the table prefix: {table_prefix}."
+            f"{backfill_blob.name}."
             "Once the issue is dealt with by a human, the lock "
             "file at: "
             f"gs://{lock_blob.bucket.name}/{lock_blob.name} "
             "should be manually removed and a new empty "
             f"{constants.BACKFILL_FILENAME} "
-            "file uploaded to: "
-            f"gs://{backfill_blob.bucket.name}/{table_prefix}"
-            "/_BACKFILL "
-            f"to resume the backfill subscriber so it can "
+            "file uploaded to resume the backfill subscriber so it can "
             "continue with the next item in the backlog."
             "Original Exception: "
             f"{traceback.format_exc()}") from err
@@ -179,7 +175,7 @@ def handle_backlog(
     Returns:
         bool: should this backlog subscriber exit
     """
-    table_prefix = utils.get_table_prefix(backfill_blob.name)
+    table_prefix = utils.get_table_prefix(gcs_client, backfill_blob)
     check_backlog_time = time.monotonic()
     next_backlog_file = utils.get_next_backlog_item(gcs_client, bkt,
                                                     table_prefix)
@@ -230,7 +226,7 @@ def handle_backlog(
 def start_backfill_subscriber_if_not_running(
         gcs_client: Optional[storage.Client], bkt: storage.Bucket,
         table_prefix: str) -> Optional[storage.Blob]:
-    """start the backfill subscriber if  it is not already runnning for this
+    """start the backfill subscriber if it is not already runnning for this
     table prefix.
 
     created a backfill file for the table prefix if not exists.
@@ -274,19 +270,20 @@ def start_backfill_subscriber_if_not_running(
         return None
 
 
-def success_blob_to_backlog_blob(success_blob: storage.Blob) -> storage.Blob:
+def success_blob_to_backlog_blob(gcs_client: storage.Client,
+                                 success_blob: storage.Blob) -> storage.Blob:
     """create a blob object that is a pointer to the input success blob in the
     backlog
     """
     bkt = success_blob.bucket
-    table_prefix = utils.get_table_prefix(success_blob.name)
+    table_prefix = utils.get_table_prefix(gcs_client, success_blob)
     success_file_suffix = utils.removeprefix(success_blob.name,
                                              f"{table_prefix}/")
     return bkt.blob(f"{table_prefix}/_backlog/{success_file_suffix}")
 
 
 def subscriber_monitor(gcs_client: Optional[storage.Client],
-                       bkt: storage.Bucket, object_id: str) -> bool:
+                       bkt: storage.Bucket, blob: storage.Blob) -> bool:
     """
     Monitor to handle a rare race condition where:
 
@@ -310,7 +307,7 @@ def subscriber_monitor(gcs_client: Optional[storage.Client],
     if gcs_client is None:
         gcs_client = storage.Client(client_info=constants.CLIENT_INFO)
     backfill_blob = start_backfill_subscriber_if_not_running(
-        gcs_client, bkt, utils.get_table_prefix(object_id))
+        gcs_client, bkt, utils.get_table_prefix(gcs_client, blob))
 
     # backfill blob may be none if the START_BACKFILL_FILENAME has not been
     # dropped
@@ -330,14 +327,14 @@ def subscriber_monitor(gcs_client: Optional[storage.Client],
                 "subscriber for this table.")
             backfill_blob.delete(client=gcs_client)
             start_backfill_subscriber_if_not_running(
-                gcs_client, bkt, utils.get_table_prefix(object_id))
+                gcs_client, bkt, utils.get_table_prefix(gcs_client, blob))
             return True
 
         time.sleep(constants.ENSURE_SUBSCRIBER_SECONDS)
         while not utils.wait_on_gcs_blob(gcs_client, backfill_blob,
                                          constants.ENSURE_SUBSCRIBER_SECONDS):
             start_backfill_subscriber_if_not_running(
-                gcs_client, bkt, utils.get_table_prefix(object_id))
+                gcs_client, bkt, utils.get_table_prefix(gcs_client, blob))
             return True
     return False
 

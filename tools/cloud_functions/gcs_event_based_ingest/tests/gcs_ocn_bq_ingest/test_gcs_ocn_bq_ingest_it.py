@@ -17,6 +17,7 @@ from typing import List
 
 import google.cloud.exceptions
 import pytest
+from google.cloud import storage
 
 import gcs_ocn_bq_ingest.main
 import gcs_ocn_bq_ingest.common.utils
@@ -177,6 +178,23 @@ def test_external_query_partitioned(bq, gcs_partitioned_data,
 
 
 @pytest.mark.IT
+def test_partitioned_parquet(bq, gcs_split_path_partitioned_parquet_data,
+                             gcs_destination_parquet_config,
+                             dest_partitioned_table):
+    """tests the basic load ingestion mechanics for parquet files
+    """
+    test_utils.check_blobs_exist(gcs_destination_parquet_config,
+                                 "config objects must exist")
+    test_utils.check_blobs_exist(gcs_split_path_partitioned_parquet_data,
+                                 "test data objects must exist")
+
+    test_utils.trigger_gcf_for_each_blob(
+        gcs_split_path_partitioned_parquet_data)
+    expected_num_rows = 100
+    test_utils.bq_wait_for_rows(bq, dest_partitioned_table, expected_num_rows)
+
+
+@pytest.mark.IT
 def test_external_query_partitioned_parquet(
         bq, gcs_split_path_partitioned_parquet_data,
         gcs_external_partitioned_parquet_config, gcs_destination_config,
@@ -198,7 +216,7 @@ def test_external_query_partitioned_parquet(
 
 @pytest.mark.IT
 def test_external_query_partitioned_with_destination_config(
-        bq, gcs_split_path_partitioned_data, gcs_external_partitioned_config,
+        bq, gcs_partitioned_data, gcs_external_partitioned_config,
         gcs_destination_config, dest_partitioned_table):
     """tests the basic external query ingestion mechanics
     with bq_transform.sql and external.json
@@ -206,9 +224,8 @@ def test_external_query_partitioned_with_destination_config(
     test_utils.check_blobs_exist(
         (gcs_external_partitioned_config + gcs_destination_config),
         "config objects must exist")
-    test_utils.check_blobs_exist(gcs_split_path_partitioned_data,
-                                 "test data must exist")
-    test_utils.trigger_gcf_for_each_blob(gcs_split_path_partitioned_data +
+    test_utils.check_blobs_exist(gcs_partitioned_data, "test data must exist")
+    test_utils.trigger_gcf_for_each_blob(gcs_partitioned_data +
                                          gcs_external_partitioned_config +
                                          gcs_destination_config)
     expected_num_rows = 0
@@ -298,3 +315,52 @@ def test_get_batches_for_gsurl_recursive(
         print(batch)
         total_data_objects += len(batch)
     assert total_data_objects == 4
+
+
+@pytest.mark.IT
+@pytest.mark.parametrize(
+    "test_input,expected",
+    [
+        (
+            "dataset/table/_SUCCESS",  # flat
+            "dataset/table"),
+        (
+            "dataset/table/$20201030/_SUCCESS",  # partitioned
+            "dataset/table"),
+        (
+            "dataset/table/$20201030/batch_id/_SUCCESS",  # partitioned, batched
+            "dataset/table"),
+        (
+            "dataset/table/batch_id/_SUCCESS",  # batched (no partitioning)
+            "dataset/table"),
+        ("dataset/table/2020/01/02/03/batch_id/_SUCCESS", "dataset/table"),
+        ("project.dataset/table/2020/01/02/03/batch_id/_SUCCESS",
+         "project.dataset/table"),
+        ("dataset/table/_BACKFILL", "dataset/table"),
+        ("dataset/table/_bqlock", "dataset/table"),
+        ("dataset/table/_backlog/2020/01/02/03/_SUCCESS", "dataset/table"),
+    ])
+def test_get_table_prefix_with_default_destination_regex(
+        gcs, gcs_bucket, test_input, expected):
+    assert gcs_ocn_bq_ingest.common.utils.get_table_prefix(
+        gcs, storage.Blob(test_input, gcs_bucket)) == expected
+
+
+@pytest.mark.IT
+@pytest.mark.parametrize("test_input,expected", [
+    ("dataset/table/00/_SUCCESS", "dataset/table"),
+    ("dataset/table/2020/01/02/03/batch_id/_SUCCESS", "dataset/table"),
+    ("project.dataset/table/2020/01/02/03/batch_id/_SUCCESS",
+     "project.dataset/table"),
+    ("dataset/table/_BACKFILL", "dataset/table"),
+    ("dataset/table/_bqlock", "dataset/table"),
+    ("dataset/table/_backlog/2020/01/02/03/_SUCCESS", "dataset/table"),
+])
+def test_get_table_prefix_with_custom_destination_regex(
+        gcs, gcs_bucket, gcs_destination_parquet_config, test_input, expected):
+    """This tests that get_table_prefix function can pick up destination regex
+    passed via load.json config file. The custom destinatino regex used for
+    this test can be found in the gcs_destination_parquet_config fixture.
+    """
+    assert gcs_ocn_bq_ingest.common.utils.get_table_prefix(
+        gcs, storage.Blob(test_input, gcs_bucket)) == expected

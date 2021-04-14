@@ -50,7 +50,8 @@ def external_query(  # pylint: disable=too-many-arguments
     """Load from query over external table from GCS.
 
     This hinges on a SQL query defined in GCS at _config/*.sql and
-    an external table definition _config/{constants.BQ_EXTERNAL_TABLE_CONFIG_FILENAME} (otherwise will assume
+    an external table definition
+    _config/{constants.BQ_EXTERNAL_TABLE_CONFIG_FILENAME} (otherwise will assume
     CSV external table)
     """
     external_table_config = read_gcs_file_if_exists(
@@ -62,10 +63,10 @@ def external_query(  # pylint: disable=too-many-arguments
     if external_table_config:
         external_table_def = json.loads(external_table_config)
     else:
-        print(
-            f" {gsurl}_config/{constants.BQ_EXTERNAL_TABLE_CONFIG_FILENAME} not found in parents of {gsurl}. "
-            "Falling back to default PARQUET external table: "
-            f"{json.dumps(constants.DEFAULT_EXTERNAL_TABLE_DEFINITION)}")
+        print(f" {gsurl}_config/{constants.BQ_EXTERNAL_TABLE_CONFIG_FILENAME} "
+              f"not found in parents of {gsurl}. "
+              "Falling back to default PARQUET external table: "
+              f"{json.dumps(constants.DEFAULT_EXTERNAL_TABLE_DEFINITION)}")
         external_table_def = constants.DEFAULT_EXTERNAL_TABLE_DEFINITION
 
     # This may cause an issue if >10,000 files.
@@ -102,12 +103,20 @@ def external_query(  # pylint: disable=too-many-arguments
                 f"`{project_id}`.{dataset_id}")\
             .replace("{dest_table}", table_id)
 
+        print(
+            json.dumps(
+                dict(message="Submitting asynchronous query job.",
+                     severity="NOTICE",
+                     job_id=job_id,
+                     query=rendered_query,
+                     destination_table=dict(project_id=project_id,
+                                            dataset_id=dataset_id,
+                                            table_id=table_id),
+                     job_config=job_config.to_api_repr())))
         job: bigquery.QueryJob = bq_client.query(rendered_query,
                                                  job_config=job_config,
                                                  job_id=job_id)
-
         print(f"started asynchronous query job: {job.job_id}")
-
         start_poll_for_errors = time.monotonic()
         # Check if job failed quickly
         while time.monotonic(
@@ -133,13 +142,15 @@ def load_batches(gcs_client: storage.Client, bq_client: bigquery.Client,
     for batch in batches:
         # None is passed to destination parameter below because the load_config
         # object contains the destination information
+        print(
+            json.dumps(
+                dict(message="Submitting asynchronous bigquery load job.",
+                     severity="NOTICE",
+                     job_id=job_id,
+                     job_config=load_config.to_api_repr(),
+                     gsurl=gsurl)))
         job: bigquery.LoadJob = bq_client.load_table_from_uri(
             batch, None, job_config=load_config, job_id=job_id)
-
-        print(f"Started asyncronous bigquery load job with:\n"
-              f"job_id: {job.job_id}\n"
-              f"load_config: {load_config}\n"
-              f"gsurl: {gsurl}")
         jobs.append(job)
 
     start_poll_for_errors = time.monotonic()
@@ -178,6 +189,7 @@ def _get_parent_config_file(storage_client, config_filename, bucket, path):
 def look_for_config_in_parents(storage_client: storage.Client, gsurl: str,
                                config_filename: str) -> Optional[str]:
     """look in parent directories for _config/config_filename"""
+    print(f"LOOKING FOR CONFIG IN: {gsurl}")
     blob: storage.Blob = storage.Blob.from_string(gsurl)
     bucket_name = blob.bucket.name
     obj_path = blob.name
@@ -196,12 +208,14 @@ def look_for_config_in_parents(storage_client: storage.Client, gsurl: str,
     return config
 
 
-def construct_config(storage_client: storage.Client, gsurl: str,
+def construct_config(storage_client: storage.Client, blob: storage.Blob,
                      config_filename: str) -> Dict:
     """
     merge dictionaries for configs in parent directories.
     The configs closest to gsurl should take precedence.
     """
+    gsurl = removesuffix(f"gs://{blob.bucket.name}/{blob.name}",
+                         constants.SUCCESS_FILENAME)
     blob: storage.Blob = storage.Blob.from_string(gsurl)
     bucket_name = blob.bucket.name
     obj_path = blob.name
@@ -254,7 +268,7 @@ def get_batches_for_gsurl(gcs_client: storage.Client,
     prefix_path: str = parsed_url.path.lstrip('/')
 
     bucket: storage.Bucket = cached_get_bucket(gcs_client, bucket_name)
-    folders: Set(str) = get_folders_in_gcs_path_prefix(gcs_client,
+    folders: Set[str] = get_folders_in_gcs_path_prefix(gcs_client,
                                                        bucket,
                                                        prefix_path,
                                                        recursive=recursive)
@@ -319,7 +333,7 @@ def get_folders_in_gcs_path_prefix(gcs_client,
     """
 
     if (prefix_path is not None and not prefix_path.endswith('/') and
-            prefix_path is not ''):
+            prefix_path != ''):
         prefix_path = f"{prefix_path}/"
     resp = gcs_client.list_blobs(bucket, prefix=prefix_path, delimiter='/')
     # Iterate through response pages to retrieve only
@@ -338,7 +352,7 @@ def get_folders_in_gcs_path_prefix(gcs_client,
 
 
 def parse_notification(notification: dict) -> Tuple[str, str]:
-    """valdiates notification payload
+    """validates notification payload
     Args:
         notification(dict): Pub/Sub Storage Notification
         https://cloud.google.com/storage/docs/pubsub-notifications
@@ -353,7 +367,7 @@ def parse_notification(notification: dict) -> Tuple[str, str]:
         attributes.
     """
     if notification.get("kind") == "storage#object":
-        # notification is GCS Object reosource from Cloud Functions trigger
+        # notification is GCS Object resource from Cloud Functions trigger
         # https://cloud.google.com/storage/docs/json_api/v1/objects#resource
         return notification["bucket"], notification["name"]
     if notification.get("attributes"):
@@ -370,7 +384,7 @@ def parse_notification(notification: dict) -> Tuple[str, str]:
         "Cloud Function received unexpected trigger: "
         f"{notification} "
         "This function only supports direct Cloud Functions "
-        "Background Triggers or Pub/Sub storage notificaitons "
+        "Background Triggers or Pub/Sub storage notifications "
         "as described in the following links: "
         "https://cloud.google.com/storage/docs/pubsub-notifications "
         "https://cloud.google.com/functions/docs/tutorials/storage")
@@ -506,14 +520,14 @@ def handle_duplicate_notification(
 
 
 @cachetools.cached(cachetools.LRUCache(maxsize=1024))
-def get_table_prefix(object_id: str) -> str:
+def get_table_prefix(gcs_client: storage.Client, blob: storage.Blob) -> str:
     """Find the table prefix for a object_id based on the destination regex.
     Args:
-        object_id: str object ID to parse
+        blob: storage.Blob to parse
     Returns:
         str: table prefix
     """
-    basename = os.path.basename(object_id)
+    basename = os.path.basename(blob.name)
     if basename in {
             constants.BACKFILL_FILENAME,
             constants.START_BACKFILL_FILENAME,
@@ -521,22 +535,27 @@ def get_table_prefix(object_id: str) -> str:
     }:
         # These files will not match the regex and always should appear at the
         # table level.
-        return removesuffix(object_id, f"/{basename}")
-    match = re.compile(constants.DESTINATION_REGEX).match(
-        object_id.replace("/_backlog/", "/"))
+        return removesuffix(blob.name, f"/{basename}")
+    load_config: Dict = construct_config(
+        gcs_client, blob, constants.BQ_LOAD_CONFIG_FILENAME).get('load')
+    destination_regex = load_config.get('destinationRegex',
+                                        constants.DESTINATION_REGEX)
+    print(f"Retrieved DESTINATION_REGEX: {destination_regex}")
+    match = re.compile(destination_regex).match(
+        blob.name.replace("/_backlog/", "/"))
     if not match:
         raise exceptions.DestinationRegexMatchException(
-            f"could not determine table prefix for object id: {object_id}"
+            f"could not determine table prefix for object id: {blob.name}"
             "because it did not contain a match for destination_regex: "
-            f"{re.compile(constants.DESTINATION_REGEX).pattern}")
+            f"{constants.DESTINATION_REGEX}")
     table_group_index = match.re.groupindex.get("table")
     if table_group_index:
         table_level_index = match.regs[table_group_index][1]
-        return object_id[:table_level_index]
+        return blob.name[:table_level_index].rstrip('/')
     raise exceptions.DestinationRegexMatchException(
-        f"could not determine table prefix for object id: {object_id}"
+        f"could not determine table prefix for object id: {blob.name}"
         "because it did not contain a match for the table capturing group "
-        f"in destination regex: {constants.DESTINATION_REGEX.pattern}")
+        f"in destination regex: {constants.DESTINATION_REGEX}")
 
 
 def get_next_backlog_item(
@@ -552,12 +571,12 @@ def get_next_backlog_item(
         bkt: storage.Bucket that this cloud functions is ingesting data for.
         table_prefix: the prefix for the table whose backlog should be checked.
 
-    Retruns:
+    Returns:
         storage.Blob: pointer to a SUCCESS file in the backlog
     """
     backlog_blobs = gcs_client.list_blobs(bkt,
                                           prefix=f"{table_prefix}/_backlog/")
-    # Backlog items will be lexciographically sorted
+    # Backlog items will be lexicographically sorted
     # https://cloud.google.com/storage/docs/json_api/v1/objects/list
     for blob in backlog_blobs:
         return blob  # Return first item in iterator
@@ -583,7 +602,7 @@ def remove_oldest_backlog_item(
     """
     backlog_blobs = gcs_client.list_blobs(bkt,
                                           prefix=f"{table_prefix}/_backlog/")
-    # Backlog items will be lexciographically sorted
+    # Backlog items will be lexicographically sorted
     # https://cloud.google.com/storage/docs/json_api/v1/objects/list
     blob: storage.Blob
     for blob in backlog_blobs:
@@ -711,11 +730,8 @@ def gcs_path_to_load_config_and_batch(
         RuntimeError if the destination regex didn't match anything in the
          GCS path
     """
-    gsurl = removesuffix(f"gs://{blob.bucket.name}/{blob.name}",
-                         constants.SUCCESS_FILENAME)
-    print(f"GSURL: {gsurl}")
     load_config: Dict = construct_config(
-        gcs_client, gsurl, constants.BQ_LOAD_CONFIG_FILENAME).get('load')
+        gcs_client, blob, constants.BQ_LOAD_CONFIG_FILENAME).get('load')
     print(f"LOAD CONFIG: {load_config}")
     if load_config:
         dest_config: Dict = load_config.get('destinationTable') or {}
@@ -726,7 +742,7 @@ def gcs_path_to_load_config_and_batch(
         destination_match = re.compile(dest_regex).match(blob.name)
         if not destination_match:
             raise RuntimeError(f"Object ID {blob.name} did not match regex:"
-                               f" {constants.DESTINATION_REGEX.pattern}")
+                               f" {constants.DESTINATION_REGEX}")
         destination_details = destination_match.groupdict()
         try:
             project = dest_config.get('projectId') or os.getenv(
@@ -742,13 +758,15 @@ def gcs_path_to_load_config_and_batch(
             table = dest_config.get('tableId') or destination_details['table']
         except KeyError:
             raise exceptions.DestinationRegexMatchException(
-                f"Object ID {blob.name} did not match dataset and table in regex:"
-                f" {constants.DESTINATION_REGEX.pattern}") from KeyError
+                f"Object ID {blob.name} "
+                f"did not match dataset and table in regex:"
+                f" {constants.DESTINATION_REGEX}") from KeyError
         partition = destination_details.get('partition')
         year, month, day, hour = (destination_details.get(key, "")
                                   for key in ('yyyy', 'mm', 'dd', 'hh'))
         part_list = (year, month, day, hour)
         if not partition and any(part_list):
+            print(f"PART LIST: {part_list}")
             partition = '$' + ''.join(part_list)
         batch_id = destination_details.get('batch')
         labels = constants.DEFAULT_JOB_LABELS
@@ -855,7 +873,7 @@ def apply(
     load_config, _ = gcs_path_to_load_config_and_batch(gcs_client, success_blob,
                                                        bq_client.project)
     print(
-        "looking for a transformation tranformation sql file in parent _config."
+        "looking for a transformation transformation sql file in parent _config."
     )
     external_query_sql = look_for_config_in_parents(
         gcs_client, f"gs://{bkt.name}/{success_blob.name}", '*.sql')
@@ -878,7 +896,7 @@ def apply(
         msg = (f"failed to submit job {job_id} for {gsurl}: "
                f"{etype.__class__.__name__}: {value}")
         blob = storage.Blob.from_string(gsurl)
-        table_prefix = get_table_prefix(blob.name)
+        table_prefix = get_table_prefix(gcs_client, blob)
         bqlock = storage.Blob.from_string(
             f"gs://{blob.bucket.name}/{table_prefix}/_bqlock")
         # Write this error message to avoid confusion.

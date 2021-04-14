@@ -128,7 +128,7 @@ def triage_event(gcs_client: Optional[storage.Client],
                   "/_backlog/ directory. "
                   f"Watiting {constants.ENSURE_SUBSCRIBER_SECONDS} seconds to "
                   "ensure that subscriber is running.")
-            ordering.subscriber_monitor(gcs_client, bkt, event_blob.name)
+            ordering.subscriber_monitor(gcs_client, bkt, event_blob)
             return
         if (constants.START_BACKFILL_FILENAME and
                 basename_object_id == constants.START_BACKFILL_FILENAME):
@@ -136,13 +136,14 @@ def triage_event(gcs_client: Optional[storage.Client],
                   f"{event_blob.name}")
             # This will be the first backfill file.
             ordering.start_backfill_subscriber_if_not_running(
-                gcs_client, bkt, utils.get_table_prefix(event_blob.name))
+                gcs_client, bkt, utils.get_table_prefix(gcs_client, event_blob))
             return
         if basename_object_id == constants.SUCCESS_FILENAME:
             ordering.backlog_publisher(gcs_client, event_blob)
             return
         if basename_object_id == constants.BACKFILL_FILENAME:
-            if (event_blob.name != f"{utils.get_table_prefix(event_blob.name)}/"
+            if (event_blob.name !=
+                    f"{utils.get_table_prefix(gcs_client, event_blob)}/"
                     f"{constants.BACKFILL_FILENAME}"):
                 raise RuntimeError(
                     f"recieved notification for gs://{event_blob.bucket.name}/"

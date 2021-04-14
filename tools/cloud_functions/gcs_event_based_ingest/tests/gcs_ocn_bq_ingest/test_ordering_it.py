@@ -18,6 +18,7 @@ import queue
 import time
 from typing import Optional
 from typing import List
+import importlib
 
 import pytest
 from google.cloud import bigquery
@@ -49,7 +50,7 @@ def test_backlog_publisher(gcs, gcs_bucket, gcs_partitioned_data):
         if gcs_data.name.endswith(
                 gcs_ocn_bq_ingest.common.constants.SUCCESS_FILENAME):
             table_prefix = gcs_ocn_bq_ingest.common.utils.get_table_prefix(
-                gcs_data.name)
+                gcs, gcs_data)
             gcs_ocn_bq_ingest.common.ordering.backlog_publisher(gcs, gcs_data)
 
     expected_backlog_blobs = queue.Queue()
@@ -97,7 +98,7 @@ def test_backlog_publisher_with_existing_backfill_file(gcs, gcs_bucket,
         if gcs_data.name.endswith(
                 gcs_ocn_bq_ingest.common.constants.SUCCESS_FILENAME):
             table_prefix = gcs_ocn_bq_ingest.common.utils.get_table_prefix(
-                gcs_data.name)
+                gcs, gcs_data)
             gcs_ocn_bq_ingest.common.ordering.backlog_publisher(gcs, gcs_data)
 
     # Use of queue to test that list responses are returned in expected order.
@@ -142,7 +143,7 @@ def test_backlog_subscriber_in_order_with_new_batch_after_exit(
         if basename == gcs_ocn_bq_ingest.common.constants.BACKFILL_FILENAME:
             _run_subscriber(gcs, bq, blob)
             table_prefix = gcs_ocn_bq_ingest.common.utils.get_table_prefix(
-                blob.name)
+                gcs, blob)
             backlog_blobs = gcs_bucket.list_blobs(
                 prefix=f"{table_prefix}/_backlog/")
             assert backlog_blobs.num_results == 0, "backlog is not empty"
@@ -221,10 +222,12 @@ def test_backlog_subscriber_in_order_with_new_batch_while_running(
                 res_backlog_publisher.wait()
                 res_monitor = pool.apply_async(
                     gcs_ocn_bq_ingest.common.ordering.subscriber_monitor,
-                    (None, bkt, f"{dest_ordered_update_table.project}"
-                     f".{dest_ordered_update_table.dataset_id}/"
-                     f"{dest_ordered_update_table.table_id}/"
-                     f"_backlog/04/_SUCCESS"))
+                    (None, bkt,
+                     storage.Blob(
+                         f"{dest_ordered_update_table.project}"
+                         f".{dest_ordered_update_table.dataset_id}/"
+                         f"{dest_ordered_update_table.table_id}/"
+                         f"_backlog/04/_SUCCESS", bkt)))
 
                 if res_monitor.get():
                     print("subscriber monitor had to retrigger subscriber loop")
@@ -234,7 +237,7 @@ def test_backlog_subscriber_in_order_with_new_batch_while_running(
                 res_subscriber.wait()
 
             table_prefix = gcs_ocn_bq_ingest.common.utils.get_table_prefix(
-                blob.name)
+                gcs, blob)
             backlog_blobs = gcs_bucket.list_blobs(prefix=f"{table_prefix}/"
                                                   f"_backlog/")
             assert backlog_blobs.num_results == 0, "backlog is not empty"
@@ -250,6 +253,50 @@ def test_backlog_subscriber_in_order_with_new_batch_while_running(
                 assert row[
                     "alpha_update"] == "ABCD", "backlog not applied in order"
             assert num_rows == expected_num_rows
+
+
+@pytest.mark.IT
+@pytest.mark.ORDERING
+def test_ordered_load_parquet(monkeypatch, gcs, bq, gcs_bucket,
+                              gcs_destination_parquet_config,
+                              gcs_external_partitioned_parquet_config,
+                              gcs_split_path_batched_parquet_data,
+                              dest_partitioned_table):
+    """Test ordered loads of parquet data files
+
+    Set global env variable ORDER_PER_TABLE so that all loads are ordered.
+    Test to make sure that parquet data files are loaded in order.
+    """
+    monkeypatch.setenv("ORDER_PER_TABLE", "True")
+    monkeypatch.setenv("START_BACKFILL_FILENAME", "_HISTORYDONE")
+    # Must reload the constants file in order to pick up testing mock env vars
+    importlib.reload(gcs_ocn_bq_ingest.common.constants)
+
+    test_utils.check_blobs_exist(gcs_split_path_batched_parquet_data,
+                                 "test data objects must exist")
+
+    table_prefix = ""
+    for gcs_data in gcs_split_path_batched_parquet_data:
+        if gcs_data.name.endswith(
+                gcs_ocn_bq_ingest.common.constants.SUCCESS_FILENAME):
+            table_prefix = gcs_ocn_bq_ingest.common.utils.get_table_prefix(
+                gcs, gcs_data)
+            break
+    backfill_start_blob: storage.Blob = gcs_bucket.blob(
+        f"{table_prefix}/{gcs_ocn_bq_ingest.common.constants.START_BACKFILL_FILENAME}"
+    )
+    backfill_start_blob.upload_from_string("")
+    test_utils.trigger_gcf_for_each_blob(gcs_split_path_batched_parquet_data)
+    backfill_blob: storage.Blob = gcs_bucket.blob(
+        f"{table_prefix}/{gcs_ocn_bq_ingest.common.constants.BACKFILL_FILENAME}"
+    )
+    test_utils.check_blobs_exist([backfill_blob],
+                                 "_BACKFILL file was not created by method"
+                                 "start_backfill_subscriber_if_not_running")
+    backfill_blob.upload_from_string("")
+    test_utils.trigger_gcf_for_each_blob([backfill_blob])
+    expected_num_rows = 100
+    test_utils.bq_wait_for_rows(bq, dest_partitioned_table, expected_num_rows)
 
 
 def _run_subscriber(gcs_client: Optional[storage.Client],
