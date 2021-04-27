@@ -153,6 +153,7 @@ def triage_event(gcs_client: Optional[storage.Client],
             ordering.backlog_subscriber(gcs_client, bq_client, event_blob,
                                         function_start_time)
             return
+        print(f"ERROR CAUSED BY: {basename_object_id}")
         raise RuntimeError(f"gs://{event_blob.bucket.name}/"
                            f"{event_blob.name} could not be triaged.")
     else:  # Default behavior submit job as soon as success file lands.

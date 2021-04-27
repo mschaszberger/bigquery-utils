@@ -299,14 +299,14 @@ def test_external_query_with_bad_statement(
 def test_get_batches_for_gsurl_recursive(
     gcs,
     gcs_bucket,
-    gcs_partitioned_parquet_data,
-    gcs_external_partitioned_config,
+    gcs_split_path_partitioned_parquet_data,
+    gcs_external_partitioned_parquet_config,
 ):
     """tests that all blobs are recursively found for a given prefix
     """
-    test_utils.check_blobs_exist(gcs_external_partitioned_config,
+    test_utils.check_blobs_exist(gcs_external_partitioned_parquet_config,
                                  "config objects must exist")
-    test_utils.check_blobs_exist(gcs_partitioned_parquet_data,
+    test_utils.check_blobs_exist(gcs_split_path_partitioned_parquet_data,
                                  "test data objects must exist")
     batches = gcs_ocn_bq_ingest.common.utils.get_batches_for_gsurl(
         gcs, f"gs://{gcs_bucket.name}/", recursive=True)

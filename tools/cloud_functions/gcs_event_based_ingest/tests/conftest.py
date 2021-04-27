@@ -30,19 +30,19 @@ TEST_DIR = os.path.realpath(os.path.dirname(__file__))
 LOAD_JOB_POLLING_TIMEOUT = 10  # seconds
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="package")
 def bq() -> bigquery.Client:
     """BigQuery Client"""
     return bigquery.Client(location="US")
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="package")
 def gcs() -> storage.Client:
     """GCS Client"""
     return storage.Client()
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture(scope="package")
 def error() -> error_reporting.Client:
     """GCS Client"""
     return error_reporting.Client()
@@ -92,21 +92,21 @@ def mock_env(gcs, monkeypatch):
 
 
 @pytest.fixture
-def ordered_mock_env(mock_env, monkeypatch):
+def ordered_mock_env(monkeypatch):
     """environment variable mocks"""
     monkeypatch.setenv("ORDER_PER_TABLE", "TRUE")
 
 
 @pytest.fixture
-def dest_dataset(request, bq, mock_env, monkeypatch):
+def dest_dataset(request, bq, monkeypatch):
     random_dataset = (f"test_bq_ingest_gcf_"
                       f"{str(uuid.uuid4())[:8].replace('-','_')}")
+    if os.getenv('GCP_PROJECT') is None:
+        monkeypatch.setenv("GCP_PROJECT", bq.project)
     dataset = bigquery.Dataset(f"{os.getenv('GCP_PROJECT')}"
                                f".{random_dataset}")
     dataset.location = "US"
     bq.create_dataset(dataset)
-    monkeypatch.setenv("BQ_LOAD_STATE_TABLE",
-                       f"{dataset.dataset_id}.serverless_bq_loads")
     print(f"created dataset {dataset.dataset_id}")
 
     def teardown():
@@ -117,12 +117,13 @@ def dest_dataset(request, bq, mock_env, monkeypatch):
 
 
 @pytest.fixture
-def dest_table(request, bq, mock_env, dest_dataset) -> bigquery.Table:
+def dest_table(monkeypatch, request, bq, dest_dataset) -> bigquery.Table:
     with open(os.path.join(TEST_DIR, "resources",
                            "nation_schema.json")) as schema_file:
         schema = gcs_ocn_bq_ingest.common.utils.dict_to_bq_schema(
             json.load(schema_file))
-
+    if os.getenv('GCP_PROJECT') is None:
+        monkeypatch.setenv("GCP_PROJECT", bq.project)
     table = bq.create_table(
         bigquery.Table(
             f"{os.environ.get('GCP_PROJECT')}"
@@ -139,7 +140,7 @@ def dest_table(request, bq, mock_env, dest_dataset) -> bigquery.Table:
 
 
 @pytest.fixture
-def gcs_data(request, gcs_bucket, dest_dataset, dest_table) -> storage.Blob:
+def gcs_data(gcs_bucket, dest_dataset, dest_table) -> storage.Blob:
     data_objs: List[storage.Blob] = []
     for test_file in ["part-m-00000", "part-m-00001", "_SUCCESS"]:
         data_obj: storage.Blob = gcs_bucket.blob("/".join([
@@ -154,7 +155,7 @@ def gcs_data(request, gcs_bucket, dest_dataset, dest_table) -> storage.Blob:
 
 
 @pytest.fixture
-def gcs_data_under_sub_dirs(request, gcs_bucket, dest_dataset,
+def gcs_data_under_sub_dirs(gcs_bucket, dest_dataset,
                             dest_table) -> storage.Blob:
     data_objs = []
     for test_file in ["part-m-00000", "part-m-00001", "_SUCCESS"]:
@@ -170,7 +171,7 @@ def gcs_data_under_sub_dirs(request, gcs_bucket, dest_dataset,
 
 
 @pytest.fixture
-def gcs_truncating_load_config(request, gcs_bucket, dest_dataset,
+def gcs_truncating_load_config(gcs_bucket, dest_dataset,
                                dest_table) -> List[storage.Blob]:
     config_objs: List[storage.Blob] = []
     config_obj: storage.Blob = gcs_bucket.blob("/".join([
@@ -186,7 +187,7 @@ def gcs_truncating_load_config(request, gcs_bucket, dest_dataset,
 
 
 @pytest.fixture
-def gcs_batched_data(request, gcs_bucket, dest_dataset,
+def gcs_batched_data(gcs_bucket, dest_dataset,
                      dest_table) -> List[storage.Blob]:
     """
   upload two batches of data
@@ -205,7 +206,7 @@ def gcs_batched_data(request, gcs_bucket, dest_dataset,
 
 
 @pytest.fixture
-def gcs_external_config(request, gcs_bucket, dest_dataset,
+def gcs_external_config(gcs_bucket, dest_dataset,
                         dest_table) -> List[storage.Blob]:
     config_objs = []
     sql_obj = gcs_bucket.blob("/".join([
@@ -247,24 +248,17 @@ def gcs_external_config(request, gcs_bucket, dest_dataset,
 
 
 @pytest.fixture
-def gcs_destination_config(request, gcs_bucket, dest_dataset,
+def gcs_destination_config(gcs_bucket, dest_dataset,
                            dest_partitioned_table) -> List[storage.Blob]:
     """
     This tests that a load.json file with destinationTable specified is used
     to load data.
-
-    :param request:
-    :param gcs_bucket:
-    :param dest_dataset:
-    :param dest_partitioned_table:
-    :return:
     """
     config_objs = []
     config_obj: storage.Blob = gcs_bucket.blob("/".join([
         "_config",
         "load.json",
     ]))
-
     config_obj.upload_from_string(
         json.dumps({
             "writeDisposition":
@@ -277,8 +271,8 @@ def gcs_destination_config(request, gcs_bucket, dest_dataset,
                 "tableId": dest_partitioned_table.table_id
             },
             "destinationRegex": (
-                r".*?"  # ignore everything leading up to partition
-                r"(?P<yyyy>[\d]{4})/?"  # partition year (yyyy) (optional)
+                r"(?P<table>.*?)/"  # ignore everything leading up to partition
+                r"\$?(?P<yyyy>[\d]{4})/?"  # partition year (yyyy) (optional)
                 r"(?P<mm>[\d]{2})?/?"  # partition month (mm) (optional)
                 r"(?P<dd>[\d]{2})?/?"  # partition day (dd)  (optional)
                 r"(?P<hh>[\d]{2})?/?"  # partition hour (hh) (optional)
@@ -289,7 +283,53 @@ def gcs_destination_config(request, gcs_bucket, dest_dataset,
 
 
 @pytest.fixture
-def gcs_partitioned_data(request, gcs_bucket, dest_dataset,
+def gcs_destination_parquet_config(
+        gcs_bucket, dest_dataset, dest_partitioned_table) -> List[storage.Blob]:
+    """
+    This tests that a load.json file with destinationTable specified is used
+    to load data.
+
+    :param gcs_bucket:
+    :param dest_dataset:
+    :param dest_partitioned_table:
+    :return:
+    """
+    destination_regex = (
+        r"(?P<table>.*?)"  # ignore everything leading up to partition
+        r"(?:[\d]{4})?/?"
+        r"(?:[\d]{2})?/?"
+        r"(?:[\d]{2})?/?"
+        r"(?P<batch>[\d]{2})/?"  # batch
+        # r"^(?:[\w\-_0-9]+)/(?P<dataset>[\w\-_0-9\.]+)/"
+        # r"(?P<table>[\w\-_0-9]+)/?"
+        # r"(?:incremental|history)?/?"
+        # r"(?:[0-9]{4})?/?"
+        # r"(?:[0-9]{2})?/?"
+        # r"(?:[0-9]{2})?/?"
+        # r"(?:[0-9]{2})?/?"
+        # r"(?P<batch>[0-9]+)/?"
+    )
+    config_objs = []
+    config_obj: storage.Blob = gcs_bucket.blob("/".join([
+        "_config",
+        "load.json",
+    ]))
+    config_obj.upload_from_string(
+        json.dumps({
+            "sourceFormat": "PARQUET",
+            "destinationTable": {
+                "projectId": dest_partitioned_table.project,
+                "datasetId": dest_partitioned_table.dataset_id,
+                "tableId": dest_partitioned_table.table_id
+            },
+            "destinationRegex": destination_regex,
+        }))
+    config_objs.append(config_obj)
+    return config_objs
+
+
+@pytest.fixture
+def gcs_partitioned_data(gcs_bucket, dest_dataset,
                          dest_partitioned_table) -> List[storage.Blob]:
     data_objs = []
     for partition in ["$2017041101", "$2017041102"]:
@@ -306,7 +346,7 @@ def gcs_partitioned_data(request, gcs_bucket, dest_dataset,
 
 
 @pytest.fixture
-def gcs_partitioned_parquet_data(request, gcs_bucket, dest_dataset,
+def gcs_partitioned_parquet_data(gcs_bucket, dest_dataset,
                                  dest_partitioned_table) -> List[storage.Blob]:
     data_objs = []
     for partition in ["$2017041101", "$2017041102"]:
@@ -325,8 +365,7 @@ def gcs_partitioned_parquet_data(request, gcs_bucket, dest_dataset,
 
 @pytest.fixture
 def gcs_split_path_partitioned_data(
-        request, gcs_bucket, dest_dataset,
-        dest_partitioned_table) -> List[storage.Blob]:
+        gcs_bucket, dest_dataset, dest_partitioned_table) -> List[storage.Blob]:
     data_objs = []
     for partition in ["$2017041101", "$2017041102"]:
         for test_file in ["nyc_311.csv", "_SUCCESS"]:
@@ -350,8 +389,7 @@ def gcs_split_path_partitioned_data(
 
 @pytest.fixture
 def gcs_split_path_partitioned_parquet_data(
-        request, gcs_bucket, dest_dataset,
-        dest_partitioned_table) -> List[storage.Blob]:
+        gcs_bucket, dest_dataset, dest_partitioned_table) -> List[storage.Blob]:
     data_objs = []
     for partition in ["$2017041101", "$2017041102"]:
         for test_file in [
@@ -364,7 +402,7 @@ def gcs_split_path_partitioned_parquet_data(
                 partition[1:5],  # year
                 partition[5:7],  # month
                 partition[7:9],  # day
-                partition[9:],  # hour
+                partition[9:],  # batch
                 "biz_evnt_key=101",
                 test_file
             ]))
@@ -380,7 +418,7 @@ def gcs_split_path_partitioned_parquet_data(
             partition[1:5],  # year
             partition[5:7],  # month
             partition[7:9],  # day
-            partition[9:],  # hour
+            partition[9:],  # batch
             "_SUCCESS"
         ]))
         data_obj.upload_from_filename(
@@ -391,8 +429,48 @@ def gcs_split_path_partitioned_parquet_data(
 
 
 @pytest.fixture
-def dest_partitioned_table(request, bq: bigquery.Client, mock_env,
-                           dest_dataset) -> bigquery.Table:
+def gcs_split_path_batched_parquet_data(
+        gcs_bucket, dest_dataset, dest_partitioned_table) -> List[storage.Blob]:
+    data_objs = []
+    for partition in ["$2017041101", "$2017041102"]:
+        for test_file in [
+                "nyc311_25_rows_00.parquet", "nyc311_25_rows_01.parquet"
+        ]:
+            data_obj: storage.Blob = gcs_bucket.blob("/".join([
+                "foo",
+                "bar",
+                "baz",
+                partition[1:5],  # year
+                partition[5:7],  # month
+                partition[7:9],  # day
+                partition[9:],  # batch
+                "biz_evnt_key=101",
+                test_file
+            ]))
+            data_obj.upload_from_filename(
+                os.path.join(TEST_DIR, "resources", "test-data", "nyc_311",
+                             partition, test_file))
+            data_objs.append(data_obj)
+        # Add _SUCCESS file under the hour partition folder
+        data_obj: storage.Blob = gcs_bucket.blob("/".join([
+            "foo",
+            "bar",
+            "baz",
+            partition[1:5],  # year
+            partition[5:7],  # month
+            partition[7:9],  # day
+            partition[9:],  # batch
+            "_SUCCESS"
+        ]))
+        data_obj.upload_from_filename(
+            os.path.join(TEST_DIR, "resources", "test-data", "nyc_311",
+                         partition, "_SUCCESS"))
+        data_objs.append(data_obj)
+    return data_objs
+
+
+@pytest.fixture
+def dest_partitioned_table(bq: bigquery.Client, dest_dataset) -> bigquery.Table:
     public_table: bigquery.Table = bq.get_table(
         bigquery.TableReference.from_string(
             "bigquery-public-data.new_york_311.311_service_requests"))
@@ -442,20 +520,20 @@ def bq_wait_for_rows(bq_client: bigquery.Client, table: bigquery.Table,
 
 
 @pytest.fixture
-def dest_ordered_update_table(request, gcs, gcs_bucket, bq, mock_env,
+def dest_ordered_update_table(gcs, gcs_bucket, bq,
                               dest_dataset) -> bigquery.Table:
     with open(os.path.join(TEST_DIR, "resources",
                            "ordering_schema.json")) as schema_file:
         schema = gcs_ocn_bq_ingest.common.utils.dict_to_bq_schema(
             json.load(schema_file))
 
-    table = bigquery.Table(
+    table: bigquery.Table = bigquery.Table(
         f"{dest_dataset.project}.{dest_dataset.dataset_id}"
         f".cf_test_ordering_{str(uuid.uuid4()).replace('-','_')}",
         schema=schema,
     )
 
-    table = bq.create_table(table)
+    table: bigquery.Table = bq.create_table(table)
 
     # Our test query only updates on a single row so we need to populate
     # original row.
@@ -475,12 +553,14 @@ def dest_ordered_update_table(request, gcs, gcs_bucket, bq, mock_env,
         "_bqlock"
     ]))
 
-    bqlock_obj.upload_from_string(job.job_id)
+    bqlock_obj.upload_from_string(
+        json.dumps(dict(job_id=job.job_id,
+                        table=table.reference.to_api_repr())))
     return table
 
 
 @pytest.fixture
-def gcs_ordered_update_data(request, gcs_bucket, dest_dataset,
+def gcs_ordered_update_data(gcs_bucket, dest_dataset,
                             dest_ordered_update_table) -> List[storage.Blob]:
     data_objs = []
     older_success_blob: storage.Blob = gcs_bucket.blob("/".join([
@@ -509,8 +589,7 @@ def gcs_ordered_update_data(request, gcs_bucket, dest_dataset,
 
 
 @pytest.fixture
-def gcs_backlog(request, gcs, gcs_bucket,
-                gcs_ordered_update_data) -> List[storage.Blob]:
+def gcs_backlog(gcs, gcs_bucket, gcs_ordered_update_data) -> List[storage.Blob]:
     data_objs = []
 
     # We will deal with the last incremental in the test itself to test the
@@ -518,7 +597,7 @@ def gcs_backlog(request, gcs, gcs_bucket,
     for success_blob in gcs_ordered_update_data:
         gcs_ocn_bq_ingest.common.ordering.backlog_publisher(gcs, success_blob)
         backlog_blob = \
-            gcs_ocn_bq_ingest.common.ordering.success_blob_to_backlog_blob(
+            gcs_ocn_bq_ingest.common.ordering.success_blob_to_backlog_blob(gcs,
                 success_blob
             )
         backlog_blob.upload_from_string("")
@@ -527,7 +606,7 @@ def gcs_backlog(request, gcs, gcs_bucket,
 
 
 @pytest.fixture
-def gcs_external_update_config(request, gcs_bucket, dest_dataset,
+def gcs_external_update_config(gcs_bucket, dest_dataset,
                                dest_ordered_update_table) -> List[storage.Blob]:
     config_objs = []
     sql_obj = gcs_bucket.blob("/".join([
@@ -582,7 +661,7 @@ def gcs_external_update_config(request, gcs_bucket, dest_dataset,
 
 @pytest.fixture
 def gcs_external_partitioned_config(
-        request, bq, gcs_bucket, dest_dataset,
+        bq, gcs_bucket, dest_dataset,
         dest_partitioned_table) -> List[storage.Blob]:
     config_objs = []
     sql_obj = gcs_bucket.blob("/".join([
@@ -591,15 +670,14 @@ def gcs_external_partitioned_config(
         "_config",
         "bq_transform.sql",
     ]))
-
     sql = "INSERT {dest_dataset}.{dest_table} SELECT * FROM temp_ext;"
     sql_obj.upload_from_string(sql)
+    config_objs.append(sql_obj)
 
     config_obj = gcs_bucket.blob("/".join([
         dest_dataset.dataset_id, dest_partitioned_table.table_id, "_config",
         "external.json"
     ]))
-
     public_table: bigquery.Table = bq.get_table(
         bigquery.TableReference.from_string(
             "bigquery-public-data.new_york_311.311_service_requests"))
@@ -616,14 +694,13 @@ def gcs_external_partitioned_config(
         "sourceUris": ["REPLACEME"],
     }
     config_obj.upload_from_string(json.dumps(config))
-    config_objs.append(sql_obj)
     config_objs.append(config_obj)
     return config_objs
 
 
 @pytest.fixture
 def gcs_external_partitioned_parquet_config(
-        request, bq, gcs_bucket, dest_dataset,
+        bq, gcs_bucket, dest_dataset,
         dest_partitioned_table) -> List[storage.Blob]:
     config_objs = []
     # Upload SQL query used to load table
@@ -651,7 +728,7 @@ def no_use_error_reporting(monkeypatch):
 
 @pytest.fixture
 def gcs_external_config_bad_statement(
-        request, gcs_bucket, dest_dataset, dest_table,
+        gcs_bucket, dest_dataset, dest_table,
         no_use_error_reporting) -> List[storage.Blob]:
     config_objs = []
     sql_obj = gcs_bucket.blob("/".join([

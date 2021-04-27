@@ -17,6 +17,7 @@
 """Implement function to ensure loading data from GCS to BigQuery in order.
 """
 import datetime
+import json
 import os
 import time
 import traceback
@@ -89,10 +90,19 @@ def backlog_subscriber(gcs_client: Optional[storage.Client],
         if lock_contents:
             # is this a lock placed by this cloud function.
             # the else will handle a manual _bqlock
-            if lock_contents.startswith(
+            lock_contents = json.loads(lock_contents)
+            print(
+                json.dumps(
+                    dict(message=f"View lock contents in jsonPayload for"
+                         f" gs://{bkt.name}/{lock_blob.name}",
+                         lock_contents=lock_contents)))
+            job_id = lock_contents.get('job_id')
+            table = bigquery.TableReference.from_api_repr(
+                lock_contents.get('table'))
+            if job_id.startswith(
                     os.getenv('JOB_PREFIX', constants.DEFAULT_JOB_PREFIX)):
                 last_job_done = wait_on_last_job(bq_client, lock_blob,
-                                                 backfill_blob, lock_contents,
+                                                 backfill_blob, job_id, table,
                                                  polling_timeout)
             else:
                 print(f"sleeping for {polling_timeout} seconds because"
@@ -128,7 +138,7 @@ def backlog_subscriber(gcs_client: Optional[storage.Client],
 
 def wait_on_last_job(bq_client: bigquery.Client, lock_blob: storage.Blob,
                      backfill_blob: storage.blob, job_id: str,
-                     polling_timeout: int):
+                     table: bigquery.TableReference, polling_timeout: int):
     """wait on a bigquery job or raise informative exception.
 
     Args:
@@ -136,10 +146,12 @@ def wait_on_last_job(bq_client: bigquery.Client, lock_blob: storage.Blob,
         lock_blob: storage.Blob _bqlock blob
         backfill_blob: storage.blob _BACKFILL blob
         job_id: str BigQuery job ID to wait on (read from _bqlock file)
+        table: bigquery.TableReference table being loaded
         polling_timeout: int seconds to poll before returning.
     """
     try:
-        return utils.wait_on_bq_job_id(bq_client, job_id, polling_timeout)
+        return utils.wait_on_bq_job_id(bq_client, job_id, table,
+                                       polling_timeout)
     except (exceptions.BigQueryJobFailure,
             google.api_core.exceptions.NotFound) as err:
         raise exceptions.BigQueryJobFailure(
@@ -217,7 +229,7 @@ def handle_backlog(
             start_backfill_subscriber_if_not_running(gcs_client, bkt,
                                                      table_prefix)
             return True  # we are re-triggering a new backlog subscriber
-    utils.handle_bq_lock(gcs_client, lock_blob, None)
+    utils.handle_bq_lock(gcs_client, lock_blob, None, None)
     print(f"backlog is empty for gs://{bkt.name}/{table_prefix}. "
           "backlog subscriber exiting.")
     return True  # the backlog is empty
@@ -309,7 +321,7 @@ def subscriber_monitor(gcs_client: Optional[storage.Client],
     backfill_blob = start_backfill_subscriber_if_not_running(
         gcs_client, bkt, utils.get_table_prefix(gcs_client, blob))
 
-    # backfill blob may be none if the START_BACKFILL_FILENAME has not been
+    # Backfill blob may be none if the START_BACKFILL_FILENAME has not been
     # dropped
     if backfill_blob:
         # Handle case where a subscriber loop was not able to repost the
@@ -348,11 +360,13 @@ def _get_clients_if_none(
     process to facilitate some of our integration tests. Though it should be
     harmless if these clients are recreated in the Cloud Function.
     """
-    print("instantiating missing clients in backlog subscriber this should only"
-          " happen during integration tests.")
     if gcs_client is None:
+        print("instantiating missing gcs client in backlog subscriber this "
+              "should only happen during integration tests.")
         gcs_client = storage.Client(client_info=constants.CLIENT_INFO)
     if bq_client is None:
+        print("instantiating missing bq client in backlog subscriber this "
+              "should only happen during integration tests.")
         default_query_config = bigquery.QueryJobConfig()
         default_query_config.use_legacy_sql = False
         default_query_config.labels = constants.DEFAULT_JOB_LABELS

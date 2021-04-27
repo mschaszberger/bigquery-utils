@@ -12,7 +12,10 @@ providing transparent configuration that is overridable at any level.
 ### Data Files
 Data should be ingested to a prefix containing destination dataset and table
 like so:
-`gs://${INGESTION_BUCKET}/${BQ_DATASET}/${BQ_TABLE_NAME}/*`
+`gs://${INGESTION_BUCKET}/${BQ_DATASET}/${BQ_TABLE_NAME}/*` \
+If the path does not contain a destination table, one can be provided in a
+load.json file placed in a parent `_config` directory. See 
+
 Note, the table prefix can contain multiple sub-prefixes for handling partitions
 or for configuring historical / incremental loads differently.
 
@@ -79,6 +82,25 @@ an hourly partition might have multiple directories that upload to it.
 strict ordering restrictions about batch id appearing before / after partition
 information.
 
+### Providing Destination Table in a Config File
+ 
+A destination table and regex can be provided in a load.json config file as shown below:
+```shell
+{
+    "sourceFormat": "PARQUET",
+    "destinationRegex": "(?P<table>.*?)(?:[\\d]{4})?/?(?:[\\d]{2})?/?(?:[\\d]{2})?/?(?P<batch>[\\d]{2})/?",
+    "destinationTable": {
+        "projectId": "YOUR_PROJECT_ID",
+        "datasetId": "YOUR_DATASET_ID",
+        "tableId": "YOUR_TABLE_ID"
+    }
+}
+```
+
+Note: The destination regex must include a table group, but the rest of the groups are optional. The table group is
+  needed in order for the cloud function to determine the table prefix of GCS data files. It uses the table prefix
+  as the prefix path for the `_backlog` directory when performing ordered loads.
+
 ### Dealing with Different Naming Conventions in the Same Bucket
 In most cases, it would be recommended to have separate buckets / deployment
 of the Cloud Function for each naming convention as this typically means that
@@ -86,7 +108,9 @@ the upstream systems are governed by different teams.
 
 Sometimes many upstream systems might be using different naming conventions
 when uploading to the same bucket due to organizational constraints.
-In this case you have two options:
+In this case you have the following options:
+1. Provide an explicit destination table and destination regex in the load.json configuration file.
+   (see section "Providing Destination Table in a Config File")
 1. Try to write a very flexible regex that handles all of your naming conventions with lots of optional groups.
 [Regex101 is your friend!](https://regex101.com/)
 1. Create separate Pub/Sub notifications and separate deployment of the
