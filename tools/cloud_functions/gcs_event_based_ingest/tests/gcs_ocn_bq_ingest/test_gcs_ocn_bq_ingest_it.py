@@ -280,10 +280,8 @@ def test_look_for_destination_config_in_parents(
 
 
 @pytest.mark.IT
-def test_external_query_with_bad_statement(
-    gcs_data,
-    gcs_external_config_bad_statement,
-):
+def test_external_query_with_bad_statement(gcs_data,
+                                           gcs_external_config_bad_statement):
     """tests the basic external query ingestion mechanics
     with bq_transform.sql and external.json
     """

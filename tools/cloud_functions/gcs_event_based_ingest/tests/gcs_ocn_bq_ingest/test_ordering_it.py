@@ -164,6 +164,8 @@ def test_backlog_subscriber_in_order_with_new_batch_after_exit(
             # batch after the backlog subscriber has exited.
             backfill_blob = _post_a_new_batch(gcs_bucket,
                                               dest_ordered_update_table)
+            assert backfill_blob is not None
+
             _run_subscriber(gcs, bq, backfill_blob)
 
             rows = bq.query("SELECT alpha_update FROM "
@@ -282,18 +284,28 @@ def test_ordered_load_parquet(monkeypatch, gcs, bq, gcs_bucket,
             table_prefix = gcs_ocn_bq_ingest.common.utils.get_table_prefix(
                 gcs, gcs_data)
             break
-    backfill_start_blob: storage.Blob = gcs_bucket.blob(
-        f"{table_prefix}/{gcs_ocn_bq_ingest.common.constants.START_BACKFILL_FILENAME}"
-    )
-    backfill_start_blob.upload_from_string("")
+
+    # Invoke cloud function for all data blobs and _SUCCESS blob.
+    # Cloud function shouldn't take any action at this point because there is
+    # no _HISTORYDONE file yet.
     test_utils.trigger_gcf_for_each_blob(gcs_split_path_batched_parquet_data)
+
+    # Upload _HISTORYDONE file which will cause cloud function to take action
+    backfill_start_blob: storage.Blob = gcs_bucket.blob(
+        f"{table_prefix}/"
+        f"{gcs_ocn_bq_ingest.common.constants.START_BACKFILL_FILENAME}")
+    backfill_start_blob.upload_from_string("")
+    test_utils.check_blobs_exist([backfill_start_blob], "_HISTORYDONE file was"
+                                 "not created.")
+    test_utils.trigger_gcf_for_each_blob([backfill_start_blob])
+
+    # Check to make sure _BACKFILL file has been craeted
     backfill_blob: storage.Blob = gcs_bucket.blob(
         f"{table_prefix}/{gcs_ocn_bq_ingest.common.constants.BACKFILL_FILENAME}"
     )
     test_utils.check_blobs_exist([backfill_blob],
                                  "_BACKFILL file was not created by method"
                                  "start_backfill_subscriber_if_not_running")
-    backfill_blob.upload_from_string("")
     test_utils.trigger_gcf_for_each_blob([backfill_blob])
     expected_num_rows = 100
     test_utils.bq_wait_for_rows(bq, dest_partitioned_table, expected_num_rows)

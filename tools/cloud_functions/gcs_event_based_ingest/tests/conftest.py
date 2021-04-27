@@ -126,7 +126,7 @@ def dest_table(monkeypatch, request, bq, dest_dataset) -> bigquery.Table:
         monkeypatch.setenv("GCP_PROJECT", bq.project)
     table = bq.create_table(
         bigquery.Table(
-            f"{os.environ.get('GCP_PROJECT')}"
+            f"{os.getenv('GCP_PROJECT')}"
             f".{dest_dataset.dataset_id}.cf_test_nation_"
             f"{str(uuid.uuid4()).replace('-','_')}",
             schema=schema,
@@ -476,8 +476,11 @@ def dest_partitioned_table(bq: bigquery.Client, dest_dataset) -> bigquery.Table:
             "bigquery-public-data.new_york_311.311_service_requests"))
     schema = public_table.schema
 
+    if os.getenv('GCP_PROJECT') is None:
+        monkeypatch.setenv("GCP_PROJECT", bq.project)
+
     table: bigquery.Table = bigquery.Table(
-        f"{os.environ.get('GCP_PROJECT')}"
+        f"{os.getenv('GCP_PROJECT')}"
         f".{dest_dataset.dataset_id}.cf_test_nyc_311_"
         f"{str(uuid.uuid4()).replace('-','_')}",
         schema=schema,

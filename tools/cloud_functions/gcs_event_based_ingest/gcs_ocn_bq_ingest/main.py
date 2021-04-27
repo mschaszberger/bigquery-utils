@@ -116,6 +116,8 @@ def triage_event(gcs_client: Optional[storage.Client],
     bkt = event_blob.bucket
     basename_object_id = os.path.basename(event_blob.name)
 
+    print(f"Received object notification for gs://{event_blob.bucket.name}/"
+          f"{event_blob.name}")
     # pylint: disable=no-else-raise
     if enforce_ordering:
         # For SUCCESS files in a backlog directory, ensure that subscriber
@@ -132,8 +134,6 @@ def triage_event(gcs_client: Optional[storage.Client],
             return
         if (constants.START_BACKFILL_FILENAME and
                 basename_object_id == constants.START_BACKFILL_FILENAME):
-            print(f"notification for gs://{event_blob.bucket.name}/"
-                  f"{event_blob.name}")
             # This will be the first backfill file.
             ordering.start_backfill_subscriber_if_not_running(
                 gcs_client, bkt, utils.get_table_prefix(gcs_client, event_blob))

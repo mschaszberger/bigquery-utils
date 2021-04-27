@@ -43,17 +43,18 @@ Otherwise you can override the regex by setting the `DESTINATION_REGEX` to
 better fit your naming convention on GCS. Your regex must include
 [Python Regex with named capturing groups](https://docs.python.org/3/howto/regex.html#non-capturing-and-named-groups)
 for destination `dataset`, and `table`.
-Note, that `dataset` can optionally, explicitly specify destination project
-(i.e. `gs://${BUCKET}/project_id.dataset_id/table/....`) alternatively,
-one can set the `BQ_STORAGE_PROJECT` environment variable to set to override the
-default target project for datasets at the function level. The default behavior is to 
-infer the project from Application Default Credential (the project in
-which the Cloud Function is running, or the ADC configured in Google Cloud SDK
-if invoked locally). This is useful in scenarios where a single deployment of
-the Cloud Function is responsible for ingesting data into BigQuery tables in
-projects other than the one it is deployed in. In these cases it is crucial to
-ensure the service account that Cloud Functions is impersonating has the correct
-permissions on all destination projects.
+
+> Note: `dataset` can optionally, explicitly specify destination project
+> (i.e. `gs://${BUCKET}/project_id.dataset_id/table/....`) alternatively,
+> one can set the `BQ_STORAGE_PROJECT` environment variable to set to override the
+> default target project for datasets at the function level. The default behavior is to 
+> infer the project from Application Default Credential (the project in
+> which the Cloud Function is running, or the ADC configured in Google Cloud SDK
+> if invoked locally). This is useful in scenarios where a single deployment of
+> the Cloud Function is responsible for ingesting data into BigQuery tables in
+> projects other than the one it is deployed in. In these cases it is crucial to
+> ensure the service account that Cloud Functions is impersonating has the correct
+> permissions on all destination projects.
 
 Your regex can optionally include  for
 - `partition` must be BigQuery Partition decorator with leading `$`
@@ -75,16 +76,17 @@ DESTINATION_REGEX='(?:[\w\-_0-9]+)/(?P<dataset>[\w\-_0-9]+)/(?P<table>[\w\-_0-9]
 ```
 In this case we can take advantage of a more known rigid structure so our regex
 is simpler (no optional capturing groups, optional slashes).
-Note, we can use the `region=` string (which may have been partitioned on
-in an  upstream system such as Hive) as a batch ID because we might expect that
-an hourly partition might have multiple directories that upload to it.
-(e.g. US, GB, etc). Because it is all named capturing groups we don't have any
-strict ordering restrictions about batch id appearing before / after partition
-information.
 
-### Providing Destination Table in a Config File
+> Note: We can use the `region=` string (which may have been partitioned on
+> in an  upstream system such as Hive) as a batch ID because we might expect that
+> an hourly partition might have multiple directories that upload to it.
+> (e.g. US, GB, etc). Because it is all named capturing groups we don't have any
+> strict ordering restrictions about batch id appearing before / after partition
+> information.
+
+### Providing Destination Table and Regex in a Config File
  
-A destination table and regex can be provided in a load.json config file as shown below:
+A destination table and regex can be provided in a load.json config file (placed in a `_config/` table-level or parent directory) as shown below:
 ```shell
 {
     "sourceFormat": "PARQUET",
@@ -97,9 +99,9 @@ A destination table and regex can be provided in a load.json config file as show
 }
 ```
 
-Note: The destination regex must include a table group, but the rest of the groups are optional. The table group is
-  needed in order for the cloud function to determine the table prefix of GCS data files. It uses the table prefix
-  as the prefix path for the `_backlog` directory when performing ordered loads.
+> Note: The destination regex must include a table group, but the rest of the groups are optional. The table group is
+> needed in order for the cloud function to determine the table prefix of GCS data files. It uses the table prefix
+> as the prefix path for the `_backlog` directory when performing ordered loads.
 
 ### Dealing with Different Naming Conventions in the Same Bucket
 In most cases, it would be recommended to have separate buckets / deployment
@@ -110,7 +112,7 @@ Sometimes many upstream systems might be using different naming conventions
 when uploading to the same bucket due to organizational constraints.
 In this case you have the following options:
 1. Provide an explicit destination table and destination regex in the load.json configuration file.
-   (see section "Providing Destination Table in a Config File")
+   (see section "[Providing Destination Table in a Config File](#providing-destination-table-and-regex-in-a-config-file)")
 1. Try to write a very flexible regex that handles all of your naming conventions with lots of optional groups.
 [Regex101 is your friend!](https://regex101.com/)
 1. Create separate Pub/Sub notifications and separate deployment of the
@@ -203,17 +205,21 @@ or count towards your on-demand billing.
 They will _not_ use free tier load slots.
 
 ##### External Table Name: `temp_ext`
-Note, that the query should select from a `temp_ext` which will be a temporary
-external table configured on the fly by the Cloud Function.
-The query must handle the logic for inserting into the destination table.
-This means it should use BigQuery DML to mutate the destination table.
+> Note: The query should select from a `temp_ext` which will be a temporary
+> external table configured on the fly by the Cloud Function.
+> The query must handle the logic for inserting into the destination table.
+> This means it should use BigQuery DML to mutate the destination table.
+
 For example:
+
 ```sql
 INSERT {dest_dataset}.{dest_table}
 SELECT * FROM temp_ext
 ```
-Note that `{dest_dataset}` and `{dest_table}` can be used to inject the dataset
-and table inferred from the GCS path.
+
+> Note: The `{dest_dataset}` and `{dest_table}` placeholders will be replaced at runtime by either:
+> * The GCS path destination regex group matches for dataset and table.
+> * The destinationTable entry in a load.json file.
 
 
 The query will be run with the appropriate [external table definitions](https://cloud.google.com/bigquery/docs/reference/rest/v2/tables#ExternalDataConfiguration)
@@ -224,8 +230,9 @@ If this file is missing the external table will be assumed to be `PARQUET` forma
 ### Partitions
 
 #### Partition Table Decorators
-Note that if the directory immediately before the triggering successfile starts with
-a `$` it will be treated as a BigQuery Partition decorator for the destination table.
+
+> Note: If the directory immediately before the triggering successfile starts with
+> a `$` it will be treated as a BigQuery Partition decorator for the destination table.
 
 This means for:
 ```text
@@ -273,8 +280,8 @@ All load or external query jobs will have a job id with a  prefix following this
 ```python3
 job_id_prefix=f"gcf-ingest-{dest_table_ref.dataset_id}-{dest_table_ref.table_id}"
 ```
-Note, the prefix `gcf-ingest-` is configurable with the `JOB_PREFIX` environment
-variable.
+> Note: The prefix `gcf-ingest-` is configurable with the `JOB_PREFIX` environment
+> variable.
 
 ### Job Labels
 All load or external query jobs are labelled with functional component and
@@ -353,9 +360,9 @@ It's better for us to make a conscious decision to adopt new features or adjust
 CI configs or pin older version depending on the type for failure.
 This CI should be run on all new PRs and nightly.
 
-Note, all functionality of the cloud function (including ordering) is
-integration tested against buckets with object versioning enabled to ensure this
-solution works for buckets using this feature.
+> Note: All functionality of the cloud function (including ordering) is
+> integration tested against buckets with object versioning enabled to ensure this
+> solution works for buckets using this feature.
 
 ### Just Running the Tests
 #### Running in Docker
@@ -375,13 +382,14 @@ docker run --rm -it gcr.io/$PROJECT_ID/gcs_event_based_ingest_ci
 Alternatively to the local cloudbuild or using the docker container to run your
 tests, you can `pip3 install -r requirements-dev.txt` and select certain tests
 to run with [`python3 -m pytest`](https://docs.pytest.org/en/stable/usage.html).
-Note, this is not quite the same as callin `pytest` without the `python -m` prefix
-([pytest invocation docs](https://docs.pytest.org/en/stable/usage.html#calling-pytest-through-python-m-pytest)) 
-This is mostly useful if you'd like to integrate with your IDE debugger.
 
-Note that integration tests will spin up / tear down cloud resources that can
-incur a small cost. These resources will be spun up based on your Google Cloud SDK
-[Application Default Credentials](https://cloud.google.com/sdk/gcloud/reference/auth/application-default)
+> Note: This is not quite the same as callin `pytest` without the `python -m` prefix
+> ([pytest invocation docs](https://docs.pytest.org/en/stable/usage.html#calling-pytest-through-python-m-pytest)) 
+> This is mostly useful if you'd like to integrate with your IDE debugger.
+
+> Caution: Integration tests will spin up / tear down cloud resources that can
+> incur a small cost. These resources will be spun up based on your Google Cloud SDK
+> [Application Default Credentials](https://cloud.google.com/sdk/gcloud/reference/auth/application-default)
 
 #### Pytest Fixtures
 All Pytest fixtures are DRY-ed up into `tests/conftest.py`

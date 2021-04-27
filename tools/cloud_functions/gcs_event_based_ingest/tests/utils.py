@@ -21,7 +21,7 @@ from google.cloud import bigquery
 
 import gcs_ocn_bq_ingest.main
 
-LOAD_JOB_POLLING_TIMEOUT = 20  # seconds
+LOAD_JOB_POLLING_TIMEOUT = 120  # seconds
 
 
 def trigger_gcf_for_each_blob(blobs: List[storage.Blob]):
