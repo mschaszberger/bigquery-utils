@@ -411,7 +411,7 @@ def gcs_split_path_partitioned_parquet_data(
                              partition, test_file))
             data_objs.append(data_obj)
         # Add _SUCCESS file under the hour partition folder
-        data_obj: storage.Blob = gcs_bucket.blob("/".join([
+        data_obj = gcs_bucket.blob("/".join([
             "foo",
             "bar",
             "baz",
@@ -452,7 +452,7 @@ def gcs_split_path_batched_parquet_data(
                              partition, test_file))
             data_objs.append(data_obj)
         # Add _SUCCESS file under the hour partition folder
-        data_obj: storage.Blob = gcs_bucket.blob("/".join([
+        data_obj = gcs_bucket.blob("/".join([
             "foo",
             "bar",
             "baz",
@@ -537,7 +537,7 @@ def dest_ordered_update_table(gcs, gcs_bucket, bq,
         schema=schema,
     )
 
-    table: bigquery.Table = bq.create_table(table)
+    table = bq.create_table(table)
 
     # Our test query only updates on a single row so we need to populate
     # original row.
