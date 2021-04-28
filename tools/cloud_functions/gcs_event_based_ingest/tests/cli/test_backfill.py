@@ -13,11 +13,9 @@
 # limitations under the License.
 """integrtion tests for gcs_ocn_bq_ingest"""
 import os
-import time
 
 import backfill
 import pytest
-from google.cloud import bigquery
 from tests import utils as test_utils
 
 TEST_DIR = os.path.realpath(os.path.dirname(__file__) + "/..")
@@ -27,7 +25,7 @@ LOAD_JOB_POLLING_TIMEOUT = 20  # seconds
 @pytest.mark.IT
 @pytest.mark.CLI
 def test_backfill(bq, gcs_partitioned_data, gcs_truncating_load_config,
-                  gcs_bucket, dest_dataset, dest_partitioned_table, mock_env):
+                  gcs_bucket, dest_partitioned_table):
     """
     This is an adaptation of test_load_job_partitioned but instead uses the
     backfill CLI code path to execute the cloud function's main method in

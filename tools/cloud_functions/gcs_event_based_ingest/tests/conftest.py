@@ -100,7 +100,7 @@ def ordered_mock_env(monkeypatch):
 @pytest.fixture
 def dest_dataset(request, bq, monkeypatch):
     random_dataset = (f"test_bq_ingest_gcf_"
-                      f"{str(uuid.uuid4())[:8].replace('-','_')}")
+                      f"{str(uuid.uuid4())[:8].replace('-', '_')}")
     if os.getenv('GCP_PROJECT') is None:
         monkeypatch.setenv("GCP_PROJECT", bq.project)
     dataset = bigquery.Dataset(f"{os.getenv('GCP_PROJECT')}"
@@ -128,7 +128,7 @@ def dest_table(monkeypatch, request, bq, dest_dataset) -> bigquery.Table:
         bigquery.Table(
             f"{os.getenv('GCP_PROJECT')}"
             f".{dest_dataset.dataset_id}.cf_test_nation_"
-            f"{str(uuid.uuid4()).replace('-','_')}",
+            f"{str(uuid.uuid4()).replace('-', '_')}",
             schema=schema,
         ))
 
@@ -470,7 +470,8 @@ def gcs_split_path_batched_parquet_data(
 
 
 @pytest.fixture
-def dest_partitioned_table(bq: bigquery.Client, dest_dataset) -> bigquery.Table:
+def dest_partitioned_table(bq: bigquery.Client, dest_dataset,
+                           monkeypatch) -> bigquery.Table:
     public_table: bigquery.Table = bq.get_table(
         bigquery.TableReference.from_string(
             "bigquery-public-data.new_york_311.311_service_requests"))
@@ -482,7 +483,7 @@ def dest_partitioned_table(bq: bigquery.Client, dest_dataset) -> bigquery.Table:
     table: bigquery.Table = bigquery.Table(
         f"{os.getenv('GCP_PROJECT')}"
         f".{dest_dataset.dataset_id}.cf_test_nyc_311_"
-        f"{str(uuid.uuid4()).replace('-','_')}",
+        f"{str(uuid.uuid4()).replace('-', '_')}",
         schema=schema,
     )
 
@@ -532,7 +533,7 @@ def dest_ordered_update_table(gcs, gcs_bucket, bq,
 
     table: bigquery.Table = bigquery.Table(
         f"{dest_dataset.project}.{dest_dataset.dataset_id}"
-        f".cf_test_ordering_{str(uuid.uuid4()).replace('-','_')}",
+        f".cf_test_ordering_{str(uuid.uuid4()).replace('-', '_')}",
         schema=schema,
     )
 
@@ -599,10 +600,8 @@ def gcs_backlog(gcs, gcs_bucket, gcs_ordered_update_data) -> List[storage.Blob]:
     # behavior of a new backlog subscriber.
     for success_blob in gcs_ordered_update_data:
         gcs_ocn_bq_ingest.common.ordering.backlog_publisher(gcs, success_blob)
-        backlog_blob = \
-            gcs_ocn_bq_ingest.common.ordering.success_blob_to_backlog_blob(gcs,
-                success_blob
-            )
+        backlog_blob = gcs_ocn_bq_ingest.common.ordering.success_blob_to_backlog_blob(
+            gcs, success_blob)
         backlog_blob.upload_from_string("")
         data_objs.append(backlog_blob)
     return list(filter(lambda do: do.name.endswith("_SUCCESS"), data_objs))
