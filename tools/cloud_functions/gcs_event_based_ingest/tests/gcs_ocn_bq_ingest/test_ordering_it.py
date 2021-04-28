@@ -12,23 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """integration tests for the ordering behavior of backlog gcs_ocn_bq_ingest"""
+import importlib
 import multiprocessing
 import os
 import queue
 import time
-from typing import Optional
-from typing import List
-import importlib
+from typing import List, Optional
 
 import pytest
 from google.cloud import bigquery
 from google.cloud import storage
+from tests import utils as test_utils
 
 import gcs_ocn_bq_ingest.common.constants
 import gcs_ocn_bq_ingest.common.ordering
 import gcs_ocn_bq_ingest.common.utils
 import gcs_ocn_bq_ingest.main
-from tests import utils as test_utils
 
 TEST_DIR = os.path.realpath(os.path.dirname(__file__) + "/..")
 

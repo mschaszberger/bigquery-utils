@@ -16,8 +16,8 @@ from time import monotonic  # Monotonic clock, cannot go backward.
 from typing import List
 
 import google.cloud.exceptions
-from google.cloud import storage
 from google.cloud import bigquery
+from google.cloud import storage
 
 import gcs_ocn_bq_ingest.main
 

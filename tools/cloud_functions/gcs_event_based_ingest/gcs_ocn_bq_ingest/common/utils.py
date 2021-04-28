@@ -28,8 +28,8 @@ import re
 import sys
 import time
 import uuid
+from typing import Any, Deque, Dict, List, Optional, Set, Tuple, Union
 from urllib.parse import urlparse
-from typing import Any, Deque, Dict, List, Optional, Tuple, Union, Set
 
 import cachetools
 import google.api_core

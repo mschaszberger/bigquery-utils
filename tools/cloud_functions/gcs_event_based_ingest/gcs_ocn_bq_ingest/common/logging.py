@@ -1,10 +1,9 @@
 import json
-from typing import Union
-from typing import Optional
+from typing import Optional, Union
 
 from google.api_core.exceptions import GoogleAPIError
-from google.cloud.exceptions import ClientError
 from google.cloud import bigquery
+from google.cloud.exceptions import ClientError
 
 
 def log_bigquery_job(job: Union[bigquery.LoadJob, bigquery.QueryJob],

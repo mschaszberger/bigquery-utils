@@ -18,10 +18,10 @@ from typing import List
 import google.cloud.exceptions
 import pytest
 from google.cloud import storage
-
-import gcs_ocn_bq_ingest.main
-import gcs_ocn_bq_ingest.common.utils
 from tests import utils as test_utils
+
+import gcs_ocn_bq_ingest.common.utils
+import gcs_ocn_bq_ingest.main
 
 TEST_DIR = os.path.realpath(os.path.dirname(__file__) + "/..")
 
