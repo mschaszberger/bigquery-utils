@@ -740,8 +740,8 @@ def gcs_external_config_bad_statement(
         "bq_transform.sql",
     ]))
 
-    sql = ("INSERT {dest_dataset}.{dest_table} SELECT * FROM temp_ext;\n"
-           "INSERT {dest_dataset}.{dest_table} SELECT 1/0;")
+    sql = ("Woops this isn't valid SQL;\n"
+           "INSERT {dest_dataset}.{dest_table} SELECT * FROM temp_ext;")
     sql_obj.upload_from_string(sql)
 
     config_obj = gcs_bucket.blob("/".join([
