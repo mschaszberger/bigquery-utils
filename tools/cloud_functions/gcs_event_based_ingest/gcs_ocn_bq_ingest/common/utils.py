@@ -47,8 +47,7 @@ from . import logging  # pylint: disable=no-name-in-module,import-error
 
 def external_query(  # pylint: disable=too-many-arguments
         gcs_client: storage.Client, bq_client: bigquery.Client, gsurl: str,
-        query: str, load_config: bigquery.LoadJobConfig, job_id: str,
-        table: bigquery.TableReference):
+        query: str, job_id: str, table: bigquery.TableReference):
     """Load from query over external table from GCS.
 
     This hinges on a SQL query defined in GCS at _config/*.sql and
@@ -135,9 +134,9 @@ def load_batches(gcs_client: storage.Client, bq_client: bigquery.Client,
     while time.monotonic(
     ) - start_poll_for_errors < constants.WAIT_FOR_JOB_SECONDS:
         # Check if job failed quickly
-        for table, job in jobs:
+        for table_ref, job in jobs:
             job.reload(client=bq_client)
-            check_for_bq_job_and_children_errors(bq_client, job, table)
+            check_for_bq_job_and_children_errors(bq_client, job, table_ref)
         time.sleep(constants.JOB_POLL_INTERVAL_SECONDS)
 
 
@@ -222,7 +221,7 @@ def construct_config(storage_client: storage.Client, blob: storage.Blob,
         print("falling back to default CSV load job config. "
               "Did you forget load.json?")
         return {"load": constants.DEFAULT_LOAD_JOB_CONFIG}
-    elif config_filename == constants.BQ_LOAD_CONFIG_FILENAME:
+    if config_filename == constants.BQ_LOAD_CONFIG_FILENAME:
         return {"load": merged_config}
     # retuning any other config file that doesn't have the same name as
     # constants.BQ_LOAD_CONFIG_FILENAME (default load.json)
@@ -231,7 +230,6 @@ def construct_config(storage_client: storage.Client, blob: storage.Blob,
 
 def get_batches_for_gsurl(gcs_client: storage.Client,
                           gsurl: str,
-                          ignore_files=constants.ACTION_FILENAMES,
                           recursive=True) -> List[List[str]]:
     """
     This function creates batches of GCS uris for a given gsurl.
@@ -274,7 +272,7 @@ def get_batches_for_gsurl(gcs_client: storage.Client,
         #   - filenames in ignore_files list
         #   - _bqlock file created for ordered loads
         #   - filenames with constants.SPECIAL_GCS_DIRECTORY_NAMES in their path
-        if (os.path.basename(blob.name) not in ignore_files and
+        if (os.path.basename(blob.name) not in constants.ACTION_FILENAMES and
                 os.path.basename(blob.name) != "_bqlock" and
                 not any(blob_dir_name in constants.SPECIAL_GCS_DIRECTORY_NAMES
                         for blob_dir_name in blob.name.split('/'))):
@@ -336,11 +334,11 @@ def get_folders_in_gcs_path_prefix(gcs_client,
     for page in resp.pages:
         prefixes.update(page.prefixes)
     # Check for folders within folders
-    for prefix_path in prefixes:
-        folders.add(prefix_path)
+    for prefix in prefixes:
+        folders.add(prefix)
         if recursive:
             folders.update(
-                get_folders_in_gcs_path_prefix(gcs_client, bucket, prefix_path))
+                get_folders_in_gcs_path_prefix(gcs_client, bucket, prefix))
     return folders
 
 
@@ -513,10 +511,15 @@ def handle_duplicate_notification(
 
 
 def get_table_from_load_job_config(config: bigquery.LoadJobConfig):
-    # The BigQuery python library does not currently expose destinationTable
-    # as a property in the LoadJobConfig class. Because of this, you have to
-    # convert the LoadJobConfig object to the API representation and then
-    # extract the dictionary's value for key: destinationTable.
+    """
+    The BigQuery python library does not currently expose destinationTable
+    as a property in the LoadJobConfig class. Because of this, you have to
+    convert the LoadJobConfig object to the API representation and then
+    extract the dictionary's value for key: destinationTable.
+
+    :param config: bigquery.LoadJobConfig
+    :return: bigquery.TableReference
+    """
     if config.to_api_repr().get('load'):
         config = config.to_api_repr().get('load')
         if config.get('destinationTable'):
@@ -821,9 +824,8 @@ def gcs_path_to_load_config_and_batch(
             bigquery.LoadJobConfig.from_api_repr({'load': load_config}))
         bq_load_config.labels = constants.DEFAULT_JOB_LABELS
         return bq_load_config, batch_id
-    else:
-        raise RuntimeError(f"No {constants.BQ_LOAD_CONFIG_FILENAME=} file"
-                           f"found for {blob.name=}")
+    raise RuntimeError(f"No {constants.BQ_LOAD_CONFIG_FILENAME=} file"
+                       f"found for {blob.name=}")
 
 
 def create_job_id(success_file_path):
@@ -876,9 +878,8 @@ def handle_bq_lock(gcs_client: storage.Client, lock_blob: storage.Blob,
             raise exceptions.BacklogException(
                 f"The lock at gs://{lock_blob.bucket.name}/{lock_blob.name} "
                 f"was changed by another process.") from err
-        else:
-            print("Tried deleting a lock blob that was either already deleted "
-                  "or never existed.")
+        print("Tried deleting a lock blob that was either already deleted "
+              "or never existed.")
 
 
 def apply(
@@ -917,7 +918,7 @@ def apply(
 
         if external_query_sql:
             external_query(gcs_client, bq_client, gsurl, external_query_sql,
-                           load_config, job_id, table)
+                           job_id, table)
             return
 
         load_batches(gcs_client, bq_client, gsurl, load_config, job_id, table)
