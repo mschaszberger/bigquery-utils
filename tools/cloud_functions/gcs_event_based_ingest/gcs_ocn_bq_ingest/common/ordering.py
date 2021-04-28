@@ -22,7 +22,7 @@ import os
 import time
 import traceback
 from os import lockf
-from typing import Optional, Tuple, Dict
+from typing import Dict, Optional, Tuple
 
 import google.api_core
 import google.api_core.exceptions
@@ -103,16 +103,18 @@ def backlog_subscriber(gcs_client: Optional[storage.Client],
                     lock_contents.get('table'))
                 if job_id and table:
                     if job_id.startswith(
-                            os.getenv('JOB_PREFIX', constants.DEFAULT_JOB_PREFIX)):
-                        last_job_done = wait_on_last_job(bq_client, lock_blob,
-                                                         backfill_blob, job_id, table,
-                                                         polling_timeout)
+                            os.getenv('JOB_PREFIX',
+                                      constants.DEFAULT_JOB_PREFIX)):
+                        last_job_done = wait_on_last_job(
+                            bq_client, lock_blob, backfill_blob, job_id, table,
+                            polling_timeout)
                     else:
-                        print(f"sleeping for {polling_timeout} seconds because"
-                              f"found manual lock gs://{bkt.name}/{lock_blob.name} with"
-                              "This will be an infinite loop until the manual lock is "
-                              "released. "
-                              f"manual lock contents: {lock_contents}. ")
+                        print(
+                            f"sleeping for {polling_timeout} seconds because"
+                            f"found manual lock gs://{bkt.name}/{lock_blob.name} with"
+                            "This will be an infinite loop until the manual lock is "
+                            "released. "
+                            f"manual lock contents: {lock_contents}. ")
                         time.sleep(polling_timeout)
                         continue
         else:  # this condition handles absence of _bqlock file

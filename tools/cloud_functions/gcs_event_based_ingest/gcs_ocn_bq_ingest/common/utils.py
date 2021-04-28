@@ -822,7 +822,7 @@ def gcs_path_to_load_config_and_batch(
         return bq_load_config, batch_id
     else:
         raise RuntimeError(f"No {constants.BQ_LOAD_CONFIG_FILENAME=} file"
-                       f"found for {blob.name=}")
+                           f"found for {blob.name=}")
 
 
 def create_job_id(success_file_path):
@@ -845,8 +845,7 @@ def create_job_id(success_file_path):
 
 
 def handle_bq_lock(gcs_client: storage.Client, lock_blob: storage.Blob,
-                   next_job_id: Optional[str],
-                   table: bigquery.TableReference):
+                   next_job_id: Optional[str], table: bigquery.TableReference):
     """Reclaim the lock blob for the new job id (in-place) or delete the lock
     blob if next_job_id is None."""
     try:
