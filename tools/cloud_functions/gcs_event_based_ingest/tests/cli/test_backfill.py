@@ -18,7 +18,6 @@ import time
 import backfill
 import pytest
 from google.cloud import bigquery
-
 from tests import utils as test_utils
 
 TEST_DIR = os.path.realpath(os.path.dirname(__file__) + "/..")
