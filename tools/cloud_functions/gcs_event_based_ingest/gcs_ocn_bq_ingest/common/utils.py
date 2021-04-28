@@ -195,7 +195,7 @@ def construct_config(storage_client: storage.Client, blob: storage.Blob,
     """
     gsurl = removesuffix(f"gs://{blob.bucket.name}/{blob.name}",
                          constants.SUCCESS_FILENAME)
-    blob: storage.Blob = storage.Blob.from_string(gsurl)
+    blob = storage.Blob.from_string(gsurl)
     bucket_name = blob.bucket.name
     obj_path = blob.name
     parts = removesuffix(obj_path, "/").split("/")
@@ -546,24 +546,25 @@ def get_table_prefix(gcs_client: storage.Client, blob: storage.Blob) -> str:
         # These files will not match the regex and always should appear at the
         # table level.
         return removesuffix(blob.name, f"/{basename}")
-    load_config: Dict = construct_config(
+    load_config = construct_config(
         gcs_client, blob, constants.BQ_LOAD_CONFIG_FILENAME).get('load')
-    destination_regex = load_config.get('destinationRegex',
-                                        constants.DESTINATION_REGEX)
-    print(f"Retrieved DESTINATION_REGEX: {destination_regex}")
-    match = re.compile(destination_regex).match(
-        blob.name.replace("/_backlog/", "/"))
-    if not match:
-        raise exceptions.DestinationRegexMatchException(
-            f"could not determine table prefix for object id: {blob.name}"
-            "because it did not contain a match for destination_regex: "
-            f"{destination_regex}")
-    table_group_index = match.re.groupindex.get("table")
-    if table_group_index:
-        table_level_index = match.regs[table_group_index][1]
-        table_prefix = blob.name[:table_level_index].rstrip('/')
-        print(f"{table_prefix=}")
-        return table_prefix
+    if load_config:
+        destination_regex = load_config.get('destinationRegex',
+                                            constants.DESTINATION_REGEX)
+        print(f"Retrieved DESTINATION_REGEX: {destination_regex}")
+        match = re.compile(destination_regex).match(
+            blob.name.replace("/_backlog/", "/"))
+        if not match:
+            raise exceptions.DestinationRegexMatchException(
+                f"could not determine table prefix for object id: {blob.name}"
+                "because it did not contain a match for destination_regex: "
+                f"{destination_regex}")
+        table_group_index = match.re.groupindex.get("table")
+        if table_group_index:
+            table_level_index = match.regs[table_group_index][1]
+            table_prefix = blob.name[:table_level_index].rstrip('/')
+            print(f"{table_prefix=}")
+            return table_prefix
     raise exceptions.DestinationRegexMatchException(
         f"could not determine table prefix for object id: {blob.name}"
         "because it did not contain a match for the table capturing group "
@@ -758,15 +759,12 @@ def gcs_path_to_load_config_and_batch(
         RuntimeError if the destination regex didn't match anything in the
          GCS path
     """
-    load_config: Dict = construct_config(
+    load_config = construct_config(
         gcs_client, blob, constants.BQ_LOAD_CONFIG_FILENAME).get('load')
-    print(f"LOAD CONFIG: {load_config}")
     if load_config:
         dest_config: Dict = load_config.get('destinationTable') or {}
-        print(f"DESTINATION CONFIG: {dest_config}")
         dest_regex = load_config.get(
             'destinationRegex') or constants.DESTINATION_REGEX
-        print(f"DESTINATION REGEX: {dest_regex}")
         destination_match = re.compile(dest_regex).match(blob.name)
         if not destination_match:
             raise RuntimeError(f"Object ID {blob.name} did not match regex:"
@@ -794,7 +792,6 @@ def gcs_path_to_load_config_and_batch(
                                   for key in ('yyyy', 'mm', 'dd', 'hh'))
         part_list = (year, month, day, hour)
         if not partition and any(part_list):
-            print(f"PART LIST: {part_list}")
             partition = '$' + ''.join(part_list)
         batch_id = destination_details.get('batch')
         labels = constants.DEFAULT_JOB_LABELS
@@ -819,10 +816,13 @@ def gcs_path_to_load_config_and_batch(
         # /v2/Job#jobconfigurationload
         if load_config.get('destinationRegex'):
             load_config.pop('destinationRegex')
-        load_config: bigquery.LoadJobConfig = bigquery.LoadJobConfig.from_api_repr(
-            {'load': load_config})
-        load_config.labels = constants.DEFAULT_JOB_LABELS
-        return load_config, batch_id
+        bq_load_config: bigquery.LoadJobConfig = (
+            bigquery.LoadJobConfig.from_api_repr({'load': load_config}))
+        bq_load_config.labels = constants.DEFAULT_JOB_LABELS
+        return bq_load_config, batch_id
+    else:
+        raise RuntimeError(f"No {constants.BQ_LOAD_CONFIG_FILENAME=} file"
+                       f"found for {blob.name=}")
 
 
 def create_job_id(success_file_path):
@@ -846,7 +846,7 @@ def create_job_id(success_file_path):
 
 def handle_bq_lock(gcs_client: storage.Client, lock_blob: storage.Blob,
                    next_job_id: Optional[str],
-                   table: Optional[bigquery.TableReference]):
+                   table: bigquery.TableReference):
     """Reclaim the lock blob for the new job id (in-place) or delete the lock
     blob if next_job_id is None."""
     try:

@@ -21,7 +21,8 @@ import json
 import os
 import time
 import traceback
-from typing import Optional, Tuple
+from os import lockf
+from typing import Optional, Tuple, Dict
 
 import google.api_core
 import google.api_core.exceptions
@@ -85,33 +86,35 @@ def backlog_subscriber(gcs_client: Optional[storage.Client],
             "1 minute (Cloud Functions default).")
     while time.monotonic() < restart_time - polling_timeout - 1:
         first_bq_lock_claim = False
-        lock_contents = utils.read_gcs_file_if_exists(
+        lock_contents_str = utils.read_gcs_file_if_exists(
             gcs_client, f"gs://{bkt.name}/{lock_blob.name}")
-        if lock_contents:
+        if lock_contents_str:
             # is this a lock placed by this cloud function.
             # the else will handle a manual _bqlock
-            lock_contents = json.loads(lock_contents)
-            print(
-                json.dumps(
-                    dict(message=f"View lock contents in jsonPayload for"
-                         f" gs://{bkt.name}/{lock_blob.name}",
-                         lock_contents=lock_contents)))
-            job_id = lock_contents.get('job_id')
-            table = bigquery.TableReference.from_api_repr(
-                lock_contents.get('table'))
-            if job_id.startswith(
-                    os.getenv('JOB_PREFIX', constants.DEFAULT_JOB_PREFIX)):
-                last_job_done = wait_on_last_job(bq_client, lock_blob,
-                                                 backfill_blob, job_id, table,
-                                                 polling_timeout)
-            else:
-                print(f"sleeping for {polling_timeout} seconds because"
-                      f"found manual lock gs://{bkt.name}/{lock_blob.name} with"
-                      "This will be an infinite loop until the manual lock is "
-                      "released. "
-                      f"manual lock contents: {lock_contents}. ")
-                time.sleep(polling_timeout)
-                continue
+            lock_contents: Dict = json.loads(lock_contents_str)
+            if lock_contents:
+                print(
+                    json.dumps(
+                        dict(message=f"View lock contents in jsonPayload for"
+                             f" gs://{bkt.name}/{lock_blob.name}",
+                             lock_contents=lock_contents)))
+                job_id = lock_contents.get('job_id')
+                table = bigquery.TableReference.from_api_repr(
+                    lock_contents.get('table'))
+                if job_id and table:
+                    if job_id.startswith(
+                            os.getenv('JOB_PREFIX', constants.DEFAULT_JOB_PREFIX)):
+                        last_job_done = wait_on_last_job(bq_client, lock_blob,
+                                                         backfill_blob, job_id, table,
+                                                         polling_timeout)
+                    else:
+                        print(f"sleeping for {polling_timeout} seconds because"
+                              f"found manual lock gs://{bkt.name}/{lock_blob.name} with"
+                              "This will be an infinite loop until the manual lock is "
+                              "released. "
+                              f"manual lock contents: {lock_contents}. ")
+                        time.sleep(polling_timeout)
+                        continue
         else:  # this condition handles absence of _bqlock file
             first_bq_lock_claim = True
             last_job_done = True  # there's no running job to poll.

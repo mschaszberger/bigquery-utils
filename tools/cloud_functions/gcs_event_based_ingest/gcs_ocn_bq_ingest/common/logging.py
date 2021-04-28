@@ -45,9 +45,8 @@ def log_with_table(
             )))
 
 
-def log_api_error(table: bigquery.TableReference,
-                  message: Optional[str] = None,
-                  error: Union[GoogleAPIError, ClientError] = None):
+def log_api_error(table: bigquery.TableReference, message: str,
+                  error: Union[GoogleAPIError, ClientError]):
     print(
         json.dumps(
             dict(message=message or error.message,
