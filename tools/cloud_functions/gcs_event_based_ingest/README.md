@@ -95,10 +95,8 @@ function invocations, you can provide a destination regex in a load.json config 
     "destinationRegex": "(?P<table>.*?)(?:[\\d]{4})?/?(?:[\\d]{2})?/?(?:[\\d]{2})?/?(?P<batch>[\\d]{2})/?",
 }
 ```
-> Note: The destination regex must include a table group, but the rest of the groups are optional. The table group is
-> needed in order for the cloud function to determine the table prefix of GCS data files. It uses the table prefix
-> as the prefix path for the `_backlog` directory when performing ordered loads.
-
+Destination regex specified in a load.json config file takes precedence over the value defined in 
+the `DESTINATION_REGEX` variable. \
 Providing regex via load.json files allows **one** cloud function deployment
 to handle **many** different GCS path naming conventions.
 
@@ -118,6 +116,12 @@ specify a destination table via a `destinationTable` mapping in the load.json fi
     }
 }
 ```
+> Note: Your destination regex must include a table group, but the rest of the groups are optional. The table group is
+> needed in order for the cloud function to determine the table prefix of GCS data files. It uses the table prefix
+> as the prefix path for the `_backlog` directory when performing ordered loads.
+
+A destination table specified in a load.json config file takes precedence over a table
+matched by the destination regex group.
 
 ### Dealing with Different Naming Conventions in the Same Bucket
 In most cases, it would be recommended to have separate buckets / deployment
