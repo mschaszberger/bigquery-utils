@@ -84,9 +84,29 @@ is simpler (no optional capturing groups, optional slashes).
 > strict ordering restrictions about batch id appearing before / after partition
 > information.
 
-### Providing Destination Table and Regex in a Config File
+### Providing Destination Regex in a Config File
  
-A destination table and regex can be provided in a load.json config file (placed in a `_config/` table-level or parent directory) as shown below:
+Instead of specifying a single constant `DESTINATION_REGEX` value which remains static for all cloud
+function invocations, you can provide a destination regex in a load.json config file 
+(placed in a `_config/` directory at table or parent directory level) as shown below:
+```shell
+{
+    "sourceFormat": "PARQUET",
+    "destinationRegex": "(?P<table>.*?)(?:[\\d]{4})?/?(?:[\\d]{2})?/?(?:[\\d]{2})?/?(?P<batch>[\\d]{2})/?",
+}
+```
+> Note: The destination regex must include a table group, but the rest of the groups are optional. The table group is
+> needed in order for the cloud function to determine the table prefix of GCS data files. It uses the table prefix
+> as the prefix path for the `_backlog` directory when performing ordered loads.
+
+Providing regex via load.json files allows **one** cloud function deployment
+to handle **many** different GCS path naming conventions.
+
+### Providing Destination Table in a Config File
+
+When your dataset and table names are not present in the Cloud Storage file paths, you can explicitly
+specify a destination table via a `destinationTable` mapping in the load.json file as shown below:
+
 ```shell
 {
     "sourceFormat": "PARQUET",
@@ -99,10 +119,6 @@ A destination table and regex can be provided in a load.json config file (placed
 }
 ```
 
-> Note: The destination regex must include a table group, but the rest of the groups are optional. The table group is
-> needed in order for the cloud function to determine the table prefix of GCS data files. It uses the table prefix
-> as the prefix path for the `_backlog` directory when performing ordered loads.
-
 ### Dealing with Different Naming Conventions in the Same Bucket
 In most cases, it would be recommended to have separate buckets / deployment
 of the Cloud Function for each naming convention as this typically means that
@@ -111,8 +127,10 @@ the upstream systems are governed by different teams.
 Sometimes many upstream systems might be using different naming conventions
 when uploading to the same bucket due to organizational constraints.
 In this case you have the following options:
-1. Provide an explicit destination table and destination regex in the load.json configuration file.
-   (see section "[Providing Destination Table in a Config File](#providing-destination-table-and-regex-in-a-config-file)")
+1. Provide an explicit destination table and destination regex
+   in the load.json configuration file as detailed in the following sections:
+     * [Providing Destination Table in a Config File](#providing-destination-table-in-a-config-file)
+     * [Providing Destination Regex in a Config File](#providing-destination-regex-in-a-config-file)
 1. Try to write a very flexible regex that handles all of your naming conventions with lots of optional groups.
 [Regex101 is your friend!](https://regex101.com/)
 1. Create separate Pub/Sub notifications and separate deployment of the
