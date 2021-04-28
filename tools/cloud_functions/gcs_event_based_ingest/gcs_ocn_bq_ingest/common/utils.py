@@ -257,8 +257,8 @@ def get_batches_for_gsurl(gcs_client: storage.Client,
     folders.add(prefix_path)
     print(
         json.dumps(
-            dict(message=
-                 "Searching for blobs to load in prefix path and sub-folders",
+            dict(message="Searching for blobs to load in"
+                 " prefix path and sub-folders",
                  search_folders=list(folders),
                  severity="INFO")))
     blobs: List[storage.Blob] = []
@@ -655,7 +655,8 @@ def check_for_bq_job_and_children_errors(
             logging.log_bigquery_job(
                 job,
                 table,
-                f"BigQuery query job ran successfully but did not affect any rows.",
+                "BigQuery query job ran successfully "
+                "but did not affect any rows.",
                 "ERROR",
             )
             raise exceptions.BigQueryJobFailure(
@@ -857,10 +858,11 @@ def handle_bq_lock(gcs_client: storage.Client, lock_blob: storage.Blob,
                     if_generation_match=lock_blob.generation,
                     client=gcs_client)
             else:  # This happens when submitting the first job in the backlog
-                lock_blob.upload_from_string(json.dumps(
-                    dict(job_id=next_job_id, table=table.to_api_repr())),
-                                             if_generation_match=0,
-                                             client=gcs_client)
+                lock_blob.upload_from_string(
+                    json.dumps(
+                        dict(job_id=next_job_id, table=table.to_api_repr())),
+                    if_generation_match=0,  # noqa: E126
+                    client=gcs_client)
         else:
             print("releasing lock at: "
                   f"gs://{lock_blob.bucket.name}/{lock_blob.name}")

@@ -13,7 +13,6 @@
 # limitations under the License.
 """integration tests for gcs_ocn_bq_ingest"""
 import os
-from typing import List
 
 import google.cloud.exceptions
 import pytest

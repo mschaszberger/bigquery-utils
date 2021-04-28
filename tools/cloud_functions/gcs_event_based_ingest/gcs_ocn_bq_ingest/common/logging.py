@@ -12,13 +12,13 @@ def log_bigquery_job(job: Union[bigquery.LoadJob, bigquery.QueryJob],
                      severity: Optional[str] = 'NOTICE'):
     if job.errors:
         severity = "ERROR"
-        message = message or f"BigQuery Job had errors."
+        message = message or "BigQuery Job had errors."
     elif severity == "ERROR":
-        message = message or (f"BigQuery Job completed"
-                              f" but is considered an error.")
+        message = message or ("BigQuery Job completed"
+                              " but is considered an error.")
     else:
         severity = "NOTICE"
-        message = message or f"BigQuery Job completed without errors."
+        message = message or "BigQuery Job completed without errors."
 
     print(
         json.dumps(

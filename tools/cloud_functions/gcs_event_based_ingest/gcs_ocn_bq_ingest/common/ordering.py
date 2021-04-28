@@ -21,7 +21,6 @@ import json
 import os
 import time
 import traceback
-from os import lockf
 from typing import Dict, Optional, Tuple
 
 import google.api_core
