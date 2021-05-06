@@ -217,33 +217,6 @@ def test_recursive_update(original, update, expected):
                                                            update) == expected
 
 
-@pytest.mark.parametrize(
-    "test_input,expected",
-    [
-        (
-            "dataset/table/_SUCCESS",  # flat
-            "dataset/table"),
-        (
-            "dataset/table/$20201030/_SUCCESS",  # partitioned
-            "dataset/table"),
-        (
-            "dataset/table/$20201030/batch_id/_SUCCESS",  # partitioned, batched
-            "dataset/table"),
-        (
-            "dataset/table/batch_id/_SUCCESS",  # batched (no partitioning)
-            "dataset/table"),
-        ("dataset/table/2020/01/02/03/batch_id/_SUCCESS", "dataset/table"),
-        ("project.dataset/table/2020/01/02/03/batch_id/_SUCCESS",
-         "project.dataset/table"),
-        ("dataset/table/_BACKFILL", "dataset/table"),
-        ("dataset/table/_bqlock", "dataset/table"),
-        ("dataset/table/_backlog/2020/01/02/03/_SUCCESS", "dataset/table"),
-    ])
-def test_get_table_prefix(test_input, expected):
-    assert gcs_ocn_bq_ingest.common.utils.get_table_prefix(
-        test_input) == expected
-
-
 def test_triage_event(mock_env, mocker):
     test_event_blob: storage.Blob = storage.Blob.from_string(
         "gs://foo/bar/baz/00/_SUCCESS")
