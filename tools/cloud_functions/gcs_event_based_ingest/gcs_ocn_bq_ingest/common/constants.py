@@ -143,3 +143,8 @@ BQ_DML_STATEMENT_TYPES = {
 
 # https://cloud.google.com/bigquery/docs/running-jobs#generate-jobid
 NON_BQ_JOB_ID_REGEX = r'[^0-9a-zA-Z_\-]+'
+
+# When set to True, ordered backlog loads will wait for a new _BACKFILL file to
+# be dropped under the table prefix
+WAIT_FOR_VALIDATION = bool(
+    distutils.util.strtobool(os.getenv("WAIT_FOR_VALIDATION", "False")))
