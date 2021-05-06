@@ -609,7 +609,7 @@ every table because the parallel historical loads might still be in progress.
 
 ### Usage
 
-```
+```shell
 python3 -m backfill -h
 usage: backfill.py [-h] --gcs-path GCS_PATH [--mode {LOCAL,NOTIFICATIONS}] [--pubsub-topic PUBSUB_TOPIC] [--success-filename SUCCESS_FILENAME] [--destination-regex DESTINATION_REGEX]
 

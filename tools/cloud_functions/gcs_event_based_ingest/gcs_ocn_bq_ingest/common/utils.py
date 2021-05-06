@@ -510,6 +510,20 @@ def handle_duplicate_notification(
             "storage notification.") from err
 
 
+def remove_blob_quietly(
+    gcs_client: storage.Client,
+    blob: storage.Blob,
+):
+    """
+    Removes a blob and eats the error if it doesn't exist.
+    """
+    try:
+        blob.delete(client=gcs_client)
+    except google.api_core.exceptions.NotFound as err:
+        print(f"Attempted to delete {blob.name=} "
+              f"but the file wasn't found.")
+
+
 def get_table_from_load_job_config(config: bigquery.LoadJobConfig):
     """
     The BigQuery python library does not currently expose destinationTable

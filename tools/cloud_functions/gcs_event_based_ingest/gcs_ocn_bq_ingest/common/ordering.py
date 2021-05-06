@@ -121,7 +121,7 @@ def backlog_subscriber(gcs_client: Optional[storage.Client],
             last_job_done = True  # there's no running job to poll.
 
         if not last_job_done:
-            # keep polling th running job.
+            # keep polling the running job.
             continue
 
         # if reached here, last job is done.
@@ -129,11 +129,32 @@ def backlog_subscriber(gcs_client: Optional[storage.Client],
             # If the BQ lock was missing we do not want to delete a backlog
             # item for a job we have not yet submitted.
             utils.remove_oldest_backlog_item(gcs_client, bkt, table_prefix)
+            # Must exit subscriber if constants.WAIT_FOR_VALIDATION is set to
+            # True and there are other items in the _backlog because we do not
+            # want to process the next backlog item until validation completes
+            # for the batch that was just loaded. Validation process will drop
+            # a new _BACKFILL file as a signal to continue processing
+            # the remaining _backlog items.
+            if constants.WAIT_FOR_VALIDATION and utils.get_next_backlog_item(
+                    gcs_client, bkt, table_prefix) is not None:
+                # Remove the lock blob so that the next time a _BACKFILL file
+                # is dropped, it can begin processing the next item in _backlog.
+                utils.remove_blob_quietly(gcs_client, lock_blob)
+                print(f"{constants.WAIT_FOR_VALIDATION=} has stopped the "
+                      f"processing of _backlog items to allow a separate "
+                      f"validation process to start. When validation has "
+                      f"completed, the process must drop a new _BACKFILL file"
+                      f"to instruct this cloud function to continue processing"
+                      f"the _backlog items.")
+                return
+
+        # Submit the next item in the _backlog if it is non-empty or
+        # clean up the _BACKFILL and _bqlock files
         should_subscriber_exit = handle_backlog(gcs_client, bq_client, bkt,
                                                 lock_blob, backfill_blob)
         if should_subscriber_exit:
             return
-    # retrigger the subscriber loop by reposting the _BACKFILL file
+    # re-trigger the subscriber loop by reposting the _BACKFILL file
     print("ran out of time, restarting backfill subscriber loop for:"
           f"gs://{bkt.name}/{table_prefix}")
     backfill_blob = bkt.blob(f"{table_prefix}/{constants.BACKFILL_FILENAME}")
@@ -250,7 +271,9 @@ def start_backfill_subscriber_if_not_running(
     if gcs_client is None:
         gcs_client = storage.Client(client_info=constants.CLIENT_INFO)
     start_backfill = True
-    # Do not start subscriber until START_BACKFILL_FILENAME has been dropped
+
+    # Do not start subscriber if a START_BACKFILL_FILENAME has been defined
+    # in an environment variable and the file has not yet been dropped
     # at the table prefix.
     if constants.START_BACKFILL_FILENAME:
         start_backfill_blob = bkt.blob(

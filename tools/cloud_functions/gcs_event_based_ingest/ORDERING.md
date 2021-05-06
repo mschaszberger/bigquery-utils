@@ -30,10 +30,19 @@ date / hour information.
 
 ## Enabling Ordering
 
-### Environment Variable
+### Environment Variables
 
-Ordering can be enabled at the function level by setting the `ORDER_PER_TABLE`
-environment variable to `"True"`.
+* `ORDER_PER_TABLE` (Default: `"False"`) - Ordering can be enabled at the
+  function level by setting the `ORDER_PER_TABLE`
+  environment variable to `"True"`.
+* `WAIT_FOR_VALIDATION` (Default: `"False"`) - Setting the `WAIT_FOR_VALIDATION`
+  environment variable to `"True"` will instruct the cloud function to wait for
+  a new _BACKFILL file in between every item it processes in a table's backlog.
+  This is useful if you want to run your own validation process in between each
+  ordered batch, and only continue to the next batch once you've completed
+  validation. You instruct the cloud function to continue to the next ordered
+  batch in the table's backlog by dropping a new _BACKFILL file in the top-level
+  table directory.
 
 ### Config File
 

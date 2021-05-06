@@ -51,7 +51,7 @@ def error() -> error_reporting.Client:
 @pytest.fixture
 def gcs_bucket(request, gcs: storage.Client) -> storage.Bucket:
     """GCS bucket for test artifacts"""
-    bucket = gcs.create_bucket(str(uuid.uuid4()))
+    bucket = gcs.create_bucket(f"test_gcs_ocn_bq_ingest_{str(uuid.uuid4())}")
     bucket.versioning_enabled = True
     bucket.patch()
     # overide default field delimiter at bucket level
