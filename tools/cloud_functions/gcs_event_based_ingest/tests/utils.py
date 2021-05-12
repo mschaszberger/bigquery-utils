@@ -15,9 +15,9 @@
 from time import monotonic  # Monotonic clock, cannot go backward.
 from typing import List
 
-import google.cloud.exceptions
 from google.cloud import bigquery
 from google.cloud import storage
+from google.cloud.exceptions import NotFound
 
 import gcs_ocn_bq_ingest.main
 
@@ -35,9 +35,13 @@ def trigger_gcf_for_each_blob(blobs: List[storage.Blob]):
         gcs_ocn_bq_ingest.main.main(test_event, None)
 
 
-def check_blobs_exist(blobs: List[storage.Blob], error_msg_if_missing):
-    if not all(blob.exists() for blob in blobs):
-        raise google.cloud.exceptions.NotFound(error_msg_if_missing)
+def check_blobs_exist(blobs: List[storage.Blob], error_msg_if_missing=None):
+    for blob in blobs:
+        if not blob.exists():
+            if error_msg_if_missing is None:
+                error_msg_if_missing = (
+                    f"{blob.name=} does not exist but was expected to exist.")
+            raise NotFound(error_msg_if_missing)
 
 
 def bq_wait_for_rows(bq_client: bigquery.Client, table: bigquery.Table,

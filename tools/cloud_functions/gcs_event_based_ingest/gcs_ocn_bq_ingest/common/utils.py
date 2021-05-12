@@ -519,7 +519,7 @@ def remove_blob_quietly(
     """
     try:
         blob.delete(client=gcs_client)
-    except google.api_core.exceptions.NotFound as err:
+    except google.api_core.exceptions.NotFound:
         print(f"Attempted to delete {blob.name=} "
               f"but the file wasn't found.")
 
@@ -880,8 +880,9 @@ def handle_bq_lock(gcs_client: storage.Client, lock_blob: storage.Blob,
                     if_generation_match=0,  # noqa: E126
                     client=gcs_client)
         else:
-            print("releasing lock at: "
-                  f"gs://{lock_blob.bucket.name}/{lock_blob.name}")
+            logging.log_with_table(
+                table, "releasing lock at: "
+                f"gs://{lock_blob.bucket.name}/{lock_blob.name}")
             lock_blob.delete(
                 if_generation_match=lock_blob.generation,
                 client=gcs_client,
@@ -892,8 +893,9 @@ def handle_bq_lock(gcs_client: storage.Client, lock_blob: storage.Blob,
             raise exceptions.BacklogException(
                 f"The lock at gs://{lock_blob.bucket.name}/{lock_blob.name} "
                 f"was changed by another process.") from err
-        print("Tried deleting a lock blob that was either already deleted "
-              "or never existed.")
+        logging.log_with_table(
+            table, "Tried deleting a lock blob that was either already deleted "
+            "or never existed.")
 
 
 def apply(

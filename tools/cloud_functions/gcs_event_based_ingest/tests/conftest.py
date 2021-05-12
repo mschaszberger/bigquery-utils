@@ -14,7 +14,6 @@
 """Integration tests for gcs_ocn_bq_ingest"""
 import json
 import os
-import time
 import uuid
 from typing import List
 
@@ -493,34 +492,6 @@ def dest_partitioned_table(bq: bigquery.Client, dest_dataset,
 
     table = bq.create_table(table)
     return table
-
-
-def bq_wait_for_rows(bq_client: bigquery.Client, table: bigquery.Table,
-                     expected_num_rows: int):
-    """
-  polls tables.get API for number of rows until reaches expected value or
-  times out.
-
-  This is mostly an optimization to speed up the test suite without making it
-  flaky.
-  """
-
-    start_poll = time.monotonic()
-    actual_num_rows = 0
-    while time.monotonic() - start_poll < LOAD_JOB_POLLING_TIMEOUT:
-        bq_table: bigquery.Table = bq_client.get_table(table)
-        actual_num_rows = bq_table.num_rows
-        if actual_num_rows == expected_num_rows:
-            return
-        if actual_num_rows > expected_num_rows:
-            raise AssertionError(
-                f"{table.project}.{table.dataset_id}.{table.table_id} has"
-                f"{actual_num_rows} rows. expected {expected_num_rows} rows.")
-    raise AssertionError(
-        f"Timed out after {LOAD_JOB_POLLING_TIMEOUT} seconds waiting for "
-        f"{table.project}.{table.dataset_id}.{table.table_id} to "
-        f"reach {expected_num_rows} rows."
-        f"last poll returned {actual_num_rows} rows.")
 
 
 @pytest.fixture

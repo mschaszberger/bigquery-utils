@@ -254,7 +254,21 @@ def handle_backlog(
             start_backfill_subscriber_if_not_running(gcs_client, bkt,
                                                      table_prefix)
             return True  # we are re-triggering a new backlog subscriber
-    utils.handle_bq_lock(gcs_client, lock_blob, None, None)
+
+    # Get table from lock blob
+    lock_contents_str = utils.read_gcs_file_if_exists(
+        gcs_client, f"gs://{bkt.name}/{lock_blob.name}")
+    if lock_contents_str:
+        lock_contents: Dict = json.loads(lock_contents_str)
+        if lock_contents:
+            print(
+                json.dumps(
+                    dict(message=f"View lock contents in jsonPayload for"
+                                 f" gs://{bkt.name}/{lock_blob.name}",
+                         lock_contents=lock_contents)))
+            table = bigquery.TableReference.from_api_repr(
+                lock_contents.get('table'))
+    utils.handle_bq_lock(gcs_client, lock_blob, None, table)
     print(f"backlog is empty for gs://{bkt.name}/{table_prefix}. "
           "backlog subscriber exiting.")
     return True  # the backlog is empty

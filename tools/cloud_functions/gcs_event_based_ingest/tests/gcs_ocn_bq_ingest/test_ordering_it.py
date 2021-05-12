@@ -22,6 +22,7 @@ from typing import List, Optional
 import pytest
 from google.cloud import bigquery
 from google.cloud import storage
+from google.cloud.exceptions import NotFound
 from tests import utils as test_utils
 
 import gcs_ocn_bq_ingest.common.constants
@@ -361,6 +362,12 @@ def test_ordered_load_parquet_wait_for_validation(
                                  "_BACKFILL file was not created by method"
                                  "start_backfill_subscriber_if_not_running")
     test_utils.trigger_gcf_for_each_blob([backfill_blob])
+
+    # Test to make sure that _bqlock is not present since cloud function should
+    # remove the lock in between validations
+    with pytest.raises(NotFound):
+        test_utils.check_blobs_exist(
+            [gcs_bucket.blob(f"{table_prefix}/_bqlock")])
 
     # Check that the first batch of data was loaded but only the first batch,
     # since the second batch is waiting on confirmation of validation.

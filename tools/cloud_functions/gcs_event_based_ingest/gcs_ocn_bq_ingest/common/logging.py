@@ -64,12 +64,15 @@ def log_with_table(
     :param severity:
     :return:
     """
+    table_json = None
+    if table is not None:
+        table_json = table.to_api_repr()
     print(
         json.dumps(
             dict(
                 message=message,
                 severity=severity,
-                table=table.to_api_repr(),
+                table=table_json,
             )))
 
 
