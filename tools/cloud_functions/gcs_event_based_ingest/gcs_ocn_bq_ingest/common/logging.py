@@ -68,12 +68,11 @@ def log_with_table(
     if table is not None:
         table_json = table.to_api_repr()
     print(
-        json.dumps(
-            dict(
-                message=message,
-                severity=severity,
-                table=table_json,
-            )))
+        json.dumps(dict(
+            message=message,
+            severity=severity,
+            table=table_json,
+        )))
 
 
 def log_api_error(table: bigquery.TableReference, message: str,

@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """integration tests for gcs_ocn_bq_ingest"""
+import gzip
 import os
 
 import google.cloud.exceptions
@@ -174,6 +175,32 @@ def test_external_query_partitioned(bq, gcs_partitioned_data,
                                       "nyc_311", part, "nyc_311.csv")
         expected_num_rows += sum(1 for _ in open(test_data_file))
     test_utils.bq_wait_for_rows(bq, dest_partitioned_table, expected_num_rows)
+
+
+@pytest.mark.IT
+def test_external_query_partitioned_jagged_source(
+        bq, gcs_partitioned_data_allow_jagged,
+        gcs_external_partitioned_config_allow_jagged,
+        dest_partitioned_table_allow_jagged):
+    """tests the external query ingestion mechanics
+    with bq_transform.sql and external.json on a source which contains
+    jagged rows.
+    """
+    if not all((blob.exists()
+                for blob in gcs_external_partitioned_config_allow_jagged)):
+        raise google.cloud.exceptions.NotFound("config objects must exist")
+
+    test_utils.trigger_gcf_for_each_blob(gcs_partitioned_data_allow_jagged)
+    expected_num_rows = 0
+    for part in [
+            "$2017041101",
+            "$2017041102",
+    ]:
+        test_data_file = os.path.join(TEST_DIR, "resources", "test-data",
+                                      "nyc_311", part, "nyc_311.csv.gz")
+        expected_num_rows += sum(1 for _ in gzip.open(test_data_file))
+    test_utils.bq_wait_for_rows(bq, dest_partitioned_table_allow_jagged,
+                                expected_num_rows)
 
 
 @pytest.mark.IT

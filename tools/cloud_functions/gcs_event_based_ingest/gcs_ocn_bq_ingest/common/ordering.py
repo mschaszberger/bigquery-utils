@@ -264,7 +264,7 @@ def handle_backlog(
             print(
                 json.dumps(
                     dict(message=f"View lock contents in jsonPayload for"
-                                 f" gs://{bkt.name}/{lock_blob.name}",
+                         f" gs://{bkt.name}/{lock_blob.name}",
                          lock_contents=lock_contents)))
             table = bigquery.TableReference.from_api_repr(
                 lock_contents.get('table'))

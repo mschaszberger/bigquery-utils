@@ -345,6 +345,25 @@ def gcs_partitioned_data(gcs_bucket, dest_dataset,
 
 
 @pytest.fixture
+def gcs_partitioned_data_allow_jagged(
+        gcs_bucket, dest_dataset,
+        dest_partitioned_table_allow_jagged) -> List[storage.Blob]:
+    data_objs = []
+    for partition in ["$2017041101", "$2017041102"]:
+        for test_file in ["nyc_311.csv.gz", "_SUCCESS"]:
+            data_obj: storage.Blob = gcs_bucket.blob("/".join([
+                dest_dataset.dataset_id,
+                dest_partitioned_table_allow_jagged.table_id, partition,
+                test_file
+            ]))
+            data_obj.upload_from_filename(
+                os.path.join(TEST_DIR, "resources", "test-data", "nyc_311",
+                             partition, test_file))
+            data_objs.append(data_obj)
+    return data_objs
+
+
+@pytest.fixture
 def gcs_partitioned_parquet_data(gcs_bucket, dest_dataset,
                                  dest_partitioned_table) -> List[storage.Blob]:
     data_objs = []
@@ -479,6 +498,35 @@ def dest_partitioned_table(bq: bigquery.Client, dest_dataset,
     if os.getenv('GCP_PROJECT') is None:
         monkeypatch.setenv("GCP_PROJECT", bq.project)
 
+    table: bigquery.Table = bigquery.Table(
+        f"{os.getenv('GCP_PROJECT')}"
+        f".{dest_dataset.dataset_id}.cf_test_nyc_311_"
+        f"{str(uuid.uuid4()).replace('-', '_')}",
+        schema=schema,
+    )
+
+    table.time_partitioning = bigquery.TimePartitioning()
+    table.time_partitioning.type_ = bigquery.TimePartitioningType.HOUR
+    table.time_partitioning.field = "created_date"
+
+    table = bq.create_table(table)
+    return table
+
+
+@pytest.fixture
+def dest_partitioned_table_allow_jagged(bq: bigquery.Client, dest_dataset,
+                                        monkeypatch) -> bigquery.Table:
+    public_table: bigquery.Table = bq.get_table(
+        bigquery.TableReference.from_string(
+            "bigquery-public-data.new_york_311.311_service_requests"))
+    schema = public_table.schema
+
+    if os.getenv('GCP_PROJECT') is None:
+        monkeypatch.setenv("GCP_PROJECT", bq.project)
+
+    extra_field_for_jagged_row_test = bigquery.schema.SchemaField(
+        "extra_jagged_row_test_column", "STRING")
+    schema.append(extra_field_for_jagged_row_test)
     table: bigquery.Table = bigquery.Table(
         f"{os.getenv('GCP_PROJECT')}"
         f".{dest_dataset.dataset_id}.cf_test_nyc_311_"
@@ -658,6 +706,54 @@ def gcs_external_partitioned_config(
         "schema": public_table.to_api_repr()['schema'],
         "csvOptions": {
             "allowJaggedRows": False,
+            "allowQuotedNewlines": False,
+            "encoding": "UTF-8",
+            "fieldDelimiter": "|",
+            "skipLeadingRows": 0,
+        },
+        "sourceFormat": "CSV",
+        "sourceUris": ["REPLACEME"],
+    }
+    config_obj.upload_from_string(json.dumps(config))
+    config_objs.append(config_obj)
+    return config_objs
+
+
+@pytest.fixture
+def gcs_external_partitioned_config_allow_jagged(
+        bq, gcs_bucket, dest_dataset,
+        dest_partitioned_table_allow_jagged) -> List[storage.Blob]:
+    config_objs = []
+    sql_obj = gcs_bucket.blob("/".join([
+        dest_dataset.dataset_id,
+        dest_partitioned_table_allow_jagged.table_id,
+        "_config",
+        "bq_transform.sql",
+    ]))
+    sql = "INSERT {dest_dataset}.{dest_table} SELECT * FROM temp_ext;"
+    sql_obj.upload_from_string(sql)
+    config_objs.append(sql_obj)
+
+    config_obj = gcs_bucket.blob("/".join([
+        dest_dataset.dataset_id, dest_partitioned_table_allow_jagged.table_id,
+        "_config", "external.json"
+    ]))
+    public_table: bigquery.Table = bq.get_table(
+        bigquery.TableReference.from_string(
+            "bigquery-public-data.new_york_311.311_service_requests"))
+
+    extra_field_for_jagged_row_test = bigquery.schema.SchemaField(
+        "extra_jagged_row_test_column", "STRING")
+    jagged_schema = public_table.schema + [extra_field_for_jagged_row_test]
+    config = {
+        "schema": {
+            "fields": [
+                schema_field.to_api_repr() for schema_field in jagged_schema
+            ]
+        },
+        "compression": "GZIP",
+        "csvOptions": {
+            "allowJaggedRows": True,
             "allowQuotedNewlines": False,
             "encoding": "UTF-8",
             "fieldDelimiter": "|",

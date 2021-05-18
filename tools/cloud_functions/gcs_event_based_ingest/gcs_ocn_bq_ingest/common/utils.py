@@ -236,7 +236,8 @@ def get_batches_for_gsurl(gcs_client: storage.Client,
     By default, it will recursively search for blobs in all sub-folders of the
     given gsurl.
     The function will ignore uris of objects which match the following:
-      - filename in the ignore_files list
+      - filenames which are present in constants.ACTION_FILENAMES
+      - filenames that start with a dot (.)
       - _bqlock file created for ordered loads
       - filename contains any constant.SPECIAL_GCS_DIRECTORY_NAMES in their path
     returns an Array of their batches
@@ -269,10 +270,12 @@ def get_batches_for_gsurl(gcs_client: storage.Client,
     batch: List[str] = []
     for blob in blobs:
         # The following blobs will be ignored:
-        #   - filenames in ignore_files list
+        #   - filenames which are present in constants.ACTION_FILENAMES
+        #   - filenames that start with a dot (.)
         #   - _bqlock file created for ordered loads
         #   - filenames with constants.SPECIAL_GCS_DIRECTORY_NAMES in their path
         if (os.path.basename(blob.name) not in constants.ACTION_FILENAMES and
+                not os.path.basename(blob.name).startswith(".") and
                 os.path.basename(blob.name) != "_bqlock" and
                 not any(blob_dir_name in constants.SPECIAL_GCS_DIRECTORY_NAMES
                         for blob_dir_name in blob.name.split('/'))):
