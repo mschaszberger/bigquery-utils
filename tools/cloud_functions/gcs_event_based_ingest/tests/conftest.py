@@ -341,6 +341,12 @@ def gcs_partitioned_data(gcs_bucket, dest_dataset,
                 os.path.join(TEST_DIR, "resources", "test-data", "nyc_311",
                              partition, test_file))
             data_objs.append(data_obj)
+        dot_blob: storage.Blob = gcs_bucket.blob("/".join([
+            dest_dataset.dataset_id, dest_partitioned_table.table_id, partition,
+            ".file_that_starts_with_dot"
+        ]))
+        dot_blob.upload_from_string("")
+        data_objs.append(dot_blob)
     return data_objs
 
 
