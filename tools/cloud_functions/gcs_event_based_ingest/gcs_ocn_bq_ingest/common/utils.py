@@ -96,8 +96,8 @@ def external_query(  # pylint: disable=too-many-arguments
         job: bigquery.QueryJob = bq_client.query(rendered_query,
                                                  job_config=job_config,
                                                  job_id=job_id)
-        logging.log_bigquery_job(job, table,
-                                 "Submitted asynchronous query job.")
+        logging.log_bigquery_job(
+            job, table, f"Submitted asynchronous query job: {job.job_id}")
         start_poll_for_errors = time.monotonic()
         # Check if job failed quickly
         while time.monotonic(
@@ -127,8 +127,9 @@ def load_batches(gcs_client: storage.Client, bq_client: bigquery.Client,
         job: bigquery.LoadJob = bq_client.load_table_from_uri(
             batch, None, job_config=load_config, job_id=job_id)
         jobs.append((table, job))
-        logging.log_bigquery_job(job, table,
-                                 "Submitted asynchronous bigquery load job.")
+        logging.log_bigquery_job(
+            job, table,
+            f"Submitted asynchronous bigquery load job: {job.job_id}")
     start_poll_for_errors = time.monotonic()
     # Check if job failed quickly
     while time.monotonic(
