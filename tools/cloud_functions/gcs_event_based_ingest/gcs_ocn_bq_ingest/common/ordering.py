@@ -254,7 +254,7 @@ def handle_backlog(
             start_backfill_subscriber_if_not_running(gcs_client, bkt,
                                                      table_prefix)
             return True  # we are re-triggering a new backlog subscriber
-
+    table = None
     # Get table from lock blob
     lock_contents_str = utils.read_gcs_file_if_exists(
         gcs_client, f"gs://{bkt.name}/{lock_blob.name}")

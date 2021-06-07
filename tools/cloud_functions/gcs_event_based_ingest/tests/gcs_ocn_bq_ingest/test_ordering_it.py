@@ -383,6 +383,18 @@ def test_ordered_load_parquet_wait_for_validation(
     expected_num_rows = 100
     test_utils.bq_wait_for_rows(bq, dest_partitioned_table, expected_num_rows)
 
+    # Upload _BACKFILL file to signal that validation has completed.
+    # There won't be another chunk to load so this _BACKFILL file
+    # should signal the cloud function to remove _BACKFILL file
+    # and backlog directory.
+    backfill_blob.upload_from_string("")
+    test_utils.trigger_gcf_for_each_blob([backfill_blob])
+
+    # Test to make sure that _BACKFILL file is not present since cloud function should
+    # remove the _BACKFILL file after final load/validation is complete.
+    with pytest.raises(NotFound):
+        test_utils.check_blobs_exist(
+            [gcs_bucket.blob(f"{table_prefix}/_BACKFILL")])
 
 def _run_subscriber(gcs_client: Optional[storage.Client],
                     bq_client: Optional[bigquery.Client], backfill_blob):
