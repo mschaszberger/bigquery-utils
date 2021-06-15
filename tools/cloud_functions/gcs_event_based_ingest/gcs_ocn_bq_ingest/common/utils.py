@@ -79,6 +79,18 @@ def external_query(  # pylint: disable=too-many-arguments
     # This may cause an issue if >10,000 files.
     external_table_def["sourceUris"] = flatten2dlist(
         get_batches_for_gsurl(gcs_client, gsurl))
+    # Check if hivePartitioningOptions
+    # https://cloud.google.com/bigquery/docs/reference/rest/v2/tables#hivepartitioningoptions
+    # is set in external.json file
+    if external_table_def.get("hivePartitioningOptions"):
+        external_table_def["hivePartitioningOptions"] = {
+            "mode":
+                external_table_def["hivePartitioningOptions"].get("mode")
+                or "AUTO",
+            "sourceUriPrefix":
+                get_hive_partitioning_source_uri_prefix(
+                    external_table_def["sourceUris"][0])
+        }
     external_config = bigquery.ExternalConfig.from_api_repr(external_table_def)
     job_config = bigquery.QueryJobConfig(
         table_definitions={"temp_ext": external_config}, use_legacy_sql=False)
@@ -107,6 +119,24 @@ def external_query(  # pylint: disable=too-many-arguments
                 check_for_bq_job_and_children_errors(bq_client, job, table)
                 return
             time.sleep(constants.JOB_POLL_INTERVAL_SECONDS)
+
+
+def get_hive_partitioning_source_uri_prefix(gcs_uri: str):
+    """Given a gcs uri, parse out the hive partitioning source uri prefix
+
+    This function will look for sourceUriPrefix formats as described in
+    https://cloud.google.com/bigquery/docs/reference/rest/v2/tables#hivepartitioningoptions
+    In short, it will return the gcs uri prefix that comes before any path element which
+    contains a key,value pair (equal sign between two words).
+    """
+    source_uri_prefix_regex = r'^(?P<sourceUriPrefix>gs://.*?)/[\w\-]+=[\w\-]*/[\w\-]+'
+    match = re.compile(source_uri_prefix_regex).match(gcs_uri)
+    if not match:
+        raise exceptions.HiveSourceUriPrefixRegexMatchException(
+            f"could not determine a source uri prefix for path: {gcs_uri}"
+            "because it did not contain a match for regex: "
+            f"{source_uri_prefix_regex}")
+    return match.groupdict().get("sourceUriPrefix")
 
 
 def flatten2dlist(arr: List[List[Any]]) -> List[Any]:

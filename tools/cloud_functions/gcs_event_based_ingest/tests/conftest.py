@@ -328,6 +328,53 @@ def gcs_destination_parquet_config(
 
 
 @pytest.fixture
+def gcs_destination_parquet_config_hive_partitioned(
+        gcs_bucket, dest_dataset,
+        dest_hive_partitioned_table) -> List[storage.Blob]:
+    """
+    This tests that a load.json file with destinationTable specified is used
+    to load data.
+
+    :param gcs_bucket:
+    :param dest_dataset:
+    :param dest_hive_partitioned_table:
+    :return:
+    """
+    destination_regex = (
+        r"(?P<table>.*?)"  # ignore everything leading up to partition
+        r"(?:[\d]{4})?/?"
+        r"(?:[\d]{2})?/?"
+        r"(?:[\d]{2})?/?"
+        r"(?P<batch>[\d]{2})/?"  # batch
+        # r"^(?:[\w\-_0-9]+)/(?P<dataset>[\w\-_0-9\.]+)/"
+        # r"(?P<table>[\w\-_0-9]+)/?"
+        # r"(?:incremental|history)?/?"
+        # r"(?:[0-9]{4})?/?"
+        # r"(?:[0-9]{2})?/?"
+        # r"(?:[0-9]{2})?/?"
+        # r"(?:[0-9]{2})?/?"
+        # r"(?P<batch>[0-9]+)/?"
+    )
+    config_objs = []
+    config_obj: storage.Blob = gcs_bucket.blob("/".join([
+        "_config",
+        "load.json",
+    ]))
+    config_obj.upload_from_string(
+        json.dumps({
+            "sourceFormat": "PARQUET",
+            "destinationTable": {
+                "projectId": dest_hive_partitioned_table.project,
+                "datasetId": dest_hive_partitioned_table.dataset_id,
+                "tableId": dest_hive_partitioned_table.table_id
+            },
+            "destinationRegex": destination_regex,
+        }))
+    config_objs.append(config_obj)
+    return config_objs
+
+
+@pytest.fixture
 def gcs_partitioned_data(gcs_bucket, dest_dataset,
                          dest_partitioned_table) -> List[storage.Blob]:
     data_objs = []
@@ -401,7 +448,7 @@ def gcs_split_path_partitioned_data(
                 partition[5:7],  # month
                 partition[7:9],  # day
                 partition[9:],  # hour
-                "biz_evnt_key=101",
+                "hive_part_column=9999",
                 test_file
             ]))
             data_obj.upload_from_filename(
@@ -427,7 +474,7 @@ def gcs_split_path_partitioned_parquet_data(
                 partition[5:7],  # month
                 partition[7:9],  # day
                 partition[9:],  # batch
-                "biz_evnt_key=101",
+                "hive_part_column=9999",
                 test_file
             ]))
             data_obj.upload_from_filename(
@@ -468,7 +515,7 @@ def gcs_split_path_batched_parquet_data(
                 partition[5:7],  # month
                 partition[7:9],  # day
                 partition[9:],  # batch
-                "biz_evnt_key=101",
+                "hive_part_column=9999",
                 test_file
             ]))
             data_obj.upload_from_filename(
@@ -500,6 +547,34 @@ def dest_partitioned_table(bq: bigquery.Client, dest_dataset,
         bigquery.TableReference.from_string(
             "bigquery-public-data.new_york_311.311_service_requests"))
     schema = public_table.schema
+
+    if os.getenv('GCP_PROJECT') is None:
+        monkeypatch.setenv("GCP_PROJECT", bq.project)
+
+    table: bigquery.Table = bigquery.Table(
+        f"{os.getenv('GCP_PROJECT')}"
+        f".{dest_dataset.dataset_id}.cf_test_nyc_311_"
+        f"{str(uuid.uuid4()).replace('-', '_')}",
+        schema=schema,
+    )
+
+    table.time_partitioning = bigquery.TimePartitioning()
+    table.time_partitioning.type_ = bigquery.TimePartitioningType.HOUR
+    table.time_partitioning.field = "created_date"
+
+    table = bq.create_table(table)
+    return table
+
+
+@pytest.fixture
+def dest_hive_partitioned_table(bq: bigquery.Client, dest_dataset,
+                                monkeypatch) -> bigquery.Table:
+    public_table: bigquery.Table = bq.get_table(
+        bigquery.TableReference.from_string(
+            "bigquery-public-data.new_york_311.311_service_requests"))
+
+    schema = public_table.schema
+    schema.append(bigquery.SchemaField('hive_part_column', 'INT64'))
 
     if os.getenv('GCP_PROJECT') is None:
         monkeypatch.setenv("GCP_PROJECT", bq.project)
@@ -789,9 +864,34 @@ def gcs_external_partitioned_parquet_config(
     # Upload external table definition
     # https://cloud.google.com/bigquery/docs/reference/rest/v2/tables#externaldataconfiguration
     config_obj = gcs_bucket.blob("/".join(["_config", "external.json"]))
-    config_obj.upload_from_string(json.dumps({
-        "sourceFormat": "PARQUET",
-    }))
+    config_obj.upload_from_string(json.dumps({"sourceFormat": "PARQUET"}))
+    config_objs.append(config_obj)
+    return config_objs
+
+
+@pytest.fixture
+def gcs_external_hive_partitioned_parquet_config(
+        bq, gcs_bucket, dest_dataset,
+        dest_partitioned_table) -> List[storage.Blob]:
+    config_objs = []
+    # Upload SQL query used to load table
+    sql_obj = gcs_bucket.blob("/".join([
+        "_config",
+        "bq_transform.sql",
+    ]))
+    sql_obj.upload_from_string("INSERT {dest_dataset}.{dest_table} "
+                               "SELECT * FROM temp_ext;")
+    config_objs.append(sql_obj)
+    # Upload external table definition
+    # https://cloud.google.com/bigquery/docs/reference/rest/v2/tables#externaldataconfiguration
+    config_obj = gcs_bucket.blob("/".join(["_config", "external.json"]))
+    config_obj.upload_from_string(
+        json.dumps({
+            "sourceFormat": "PARQUET",
+            "hivePartitioningOptions": {
+                "mode": "AUTO"
+            }
+        }))
     config_objs.append(config_obj)
     return config_objs
 

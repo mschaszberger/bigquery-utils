@@ -313,6 +313,68 @@ def test_ordered_load_parquet(monkeypatch, gcs, bq, gcs_bucket,
 
 @pytest.mark.IT
 @pytest.mark.ORDERING
+def test_ordered_load_parquet_hive_partitioning(
+        monkeypatch, gcs, bq, gcs_bucket,
+        gcs_destination_parquet_config_hive_partitioned,
+        gcs_external_hive_partitioned_parquet_config,
+        gcs_split_path_batched_parquet_data, dest_hive_partitioned_table):
+    """Test ordered loads of parquet data files
+
+    Set global env variable ORDER_PER_TABLE so that all loads are ordered.
+    Test to make sure that parquet data files are loaded in order.
+    """
+    monkeypatch.setenv("ORDER_PER_TABLE", "True")
+    monkeypatch.setenv("START_BACKFILL_FILENAME", "_HISTORYDONE")
+    # Must reload the constants file in order to pick up testing mock env vars
+    importlib.reload(gcs_ocn_bq_ingest.common.constants)
+
+    test_utils.check_blobs_exist(gcs_split_path_batched_parquet_data,
+                                 "test data objects must exist")
+
+    table_prefix = ""
+    for gcs_data in gcs_split_path_batched_parquet_data:
+        if gcs_data.name.endswith(
+                gcs_ocn_bq_ingest.common.constants.SUCCESS_FILENAME):
+            table_prefix = gcs_ocn_bq_ingest.common.utils.get_table_prefix(
+                gcs, gcs_data)
+            break
+
+    # Invoke cloud function for all data blobs and _SUCCESS blob.
+    # Cloud function shouldn't take any action at this point because there is
+    # no _HISTORYDONE file yet.
+    test_utils.trigger_gcf_for_each_blob(gcs_split_path_batched_parquet_data)
+
+    # Upload _HISTORYDONE file which will cause cloud function to take action
+    backfill_start_blob: storage.Blob = gcs_bucket.blob(
+        f"{table_prefix}/"
+        f"{gcs_ocn_bq_ingest.common.constants.START_BACKFILL_FILENAME}")
+    backfill_start_blob.upload_from_string("")
+    test_utils.check_blobs_exist([backfill_start_blob], "_HISTORYDONE file was"
+                                 "not created.")
+    test_utils.trigger_gcf_for_each_blob([backfill_start_blob])
+
+    # Check to make sure _BACKFILL file has been craeted
+    backfill_blob: storage.Blob = gcs_bucket.blob(
+        f"{table_prefix}/{gcs_ocn_bq_ingest.common.constants.BACKFILL_FILENAME}"
+    )
+    test_utils.check_blobs_exist([backfill_blob],
+                                 "_BACKFILL file was not created by method"
+                                 "start_backfill_subscriber_if_not_running")
+    test_utils.trigger_gcf_for_each_blob([backfill_blob])
+    expected_num_rows = 100
+    test_utils.bq_wait_for_rows(bq, dest_hive_partitioned_table,
+                                expected_num_rows)
+    # Check to make sure the hive_part_column column values were correctly inserted
+    # into the BigQuery destination table.
+    for row in bq.query(
+            f"SELECT DISTINCT hive_part_column "
+            f"FROM `{dest_hive_partitioned_table.full_table_id.replace(':','.')}`"
+    ).result():
+        assert row.hive_part_column == 9999
+
+
+@pytest.mark.IT
+@pytest.mark.ORDERING
 def test_ordered_load_parquet_wait_for_validation(
         monkeypatch, gcs, bq, gcs_bucket, gcs_destination_parquet_config,
         gcs_external_partitioned_parquet_config,
@@ -395,6 +457,7 @@ def test_ordered_load_parquet_wait_for_validation(
     with pytest.raises(NotFound):
         test_utils.check_blobs_exist(
             [gcs_bucket.blob(f"{table_prefix}/_BACKFILL")])
+
 
 def _run_subscriber(gcs_client: Optional[storage.Client],
                     bq_client: Optional[bigquery.Client], backfill_blob):
