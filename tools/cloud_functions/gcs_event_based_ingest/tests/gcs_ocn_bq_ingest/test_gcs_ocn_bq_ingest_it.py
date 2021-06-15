@@ -245,7 +245,8 @@ def test_external_query_partitioned_with_destination_config(
         bq, gcs_partitioned_data, gcs_external_partitioned_config,
         gcs_destination_config, dest_partitioned_table):
     """tests the basic external query ingestion mechanics
-    with bq_transform.sql and external.json
+    with bq_transform.sql, external.json, and
+    destination config in load.json.
     """
     test_utils.check_blobs_exist(
         (gcs_external_partitioned_config + gcs_destination_config),
