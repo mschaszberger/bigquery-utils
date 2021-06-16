@@ -322,6 +322,7 @@ def gcs_destination_parquet_config(
                 "tableId": dest_partitioned_table.table_id
             },
             "destinationRegex": destination_regex,
+            "dataSourceName": "some-onprem-data-source"
         }))
     config_objs.append(config_obj)
     return config_objs

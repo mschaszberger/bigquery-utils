@@ -69,13 +69,11 @@ def external_query(  # pylint: disable=too-many-arguments
               "Falling back to default PARQUET external table: "
               f"{json.dumps(constants.DEFAULT_EXTERNAL_TABLE_DEFINITION)}")
         external_table_def = constants.DEFAULT_EXTERNAL_TABLE_DEFINITION
-
     print(
         json.dumps(
             dict(message="Found external table definition.",
                  table=table.to_api_repr(),
                  external_table_def=external_table_def)))
-
     # This may cause an issue if >10,000 files.
     external_table_def["sourceUris"] = flatten2dlist(
         get_batches_for_gsurl(gcs_client, gsurl))
@@ -98,13 +96,11 @@ def external_query(  # pylint: disable=too-many-arguments
     if table:
         # drop partition decorator if present.
         table_id = table.table_id.split("$")[0]
-
         # similar syntax to str.format but doesn't require escaping braces
         # elsewhere in query (e.g. in a regex)
         rendered_query = query.replace(
             "{dest_dataset}", f"`{table.project}`.{table.dataset_id}").replace(
                 "{dest_table}", table_id)
-
         job: bigquery.QueryJob = bq_client.query(rendered_query,
                                                  job_config=job_config,
                                                  job_id=job_id)
@@ -243,7 +239,6 @@ def construct_config(storage_client: storage.Client, blob: storage.Blob,
             print(f"found config: {'/'.join(parts)}")
             config_q.append(json.loads(config))
         parts.pop()
-
     merged_config: Dict = {}
     while config_q:
         recursive_update(merged_config, config_q.popleft(), in_place=True)
@@ -498,7 +493,6 @@ def recursive_update(original: Dict, update: Dict, in_place: bool = False):
         dictionary as a result of the update will be returned.
     """
     out = original if in_place else copy.deepcopy(original)
-
     for key, value in update.items():
         if isinstance(value, dict):
             out[key] = recursive_update(out.get(key, {}), value)
@@ -753,7 +747,6 @@ def wait_on_bq_job_id(bq_client: bigquery.Client,
             job, table,
             f"Reached polling timeout waiting for bigquery job {job.job_id=}.",
             "WARN")
-
     return False
 
 
@@ -791,20 +784,22 @@ def gcs_path_to_load_config_and_batch(
     gcs_client: storage.Client, blob: storage.Blob,
     default_project: Optional[str]
 ) -> Tuple[bigquery.LoadJobConfig, Optional[str]]:
-    """extract bigquery table reference and batch id from gcs object id
+    """extract bigquery load config and load data source name
 
     This function will search for destination table information in two places:
      - GCS path (table info extracted via regex)
-     - load.json (table info stored as TableReference JSON inside
+     - BQ_LOAD_CONFIG_FILENAME (table info stored as TableReference JSON inside
        destinationTable dict)
        See: https://cloud.google.com/bigquery/docs/reference/rest/v2/Job#jobconfigurationload
             https://cloud.google.com/bigquery/docs/reference/rest/v2/TableReference
+    It will return a tuple containing the BigQuery load job config and a job_id if
+    it is provided inside the BQ_LOAD_CONFIG_FILENAME file.
     Args:
         gcs_client: storage.Client
         blob: storage.Blob
         default_project: Optional[str]
     Returns:
-        google.cloud.bigquery.LoadJobConfig
+        Tuple[bigquery.LoadJobConfig, Optional[str]]
     Raises:
         exceptions.DestinationRegexMatchException if the regex matched but the
          dictionary of matches does not contain a table or a dataset.
@@ -850,7 +845,6 @@ def gcs_path_to_load_config_and_batch(
 
         if batch_id:
             labels["batch-id"] = batch_id
-
         if partition:
             load_config['destinationTable'] = {
                 'projectId': project,
@@ -868,15 +862,21 @@ def gcs_path_to_load_config_and_batch(
         # /v2/Job#jobconfigurationload
         if load_config.get('destinationRegex'):
             load_config.pop('destinationRegex')
+        data_source_name = load_config.get('dataSourceName')
+        # dataSourceName is a custom user-provided key that must be removed before
+        # converting to https://cloud.google.com/bigquery/docs/reference/rest
+        # /v2/Job#jobconfigurationload
+        if data_source_name:
+            load_config.pop('dataSourceName')
         bq_load_config: bigquery.LoadJobConfig = (
             bigquery.LoadJobConfig.from_api_repr({'load': load_config}))
         bq_load_config.labels = constants.DEFAULT_JOB_LABELS
-        return bq_load_config, batch_id
+        return bq_load_config, data_source_name
     raise RuntimeError(f"No {constants.BQ_LOAD_CONFIG_FILENAME=} file"
                        f"found for {blob.name=}")
 
 
-def create_job_id(success_file_path):
+def create_job_id(success_file_path, data_source_name=None, table=None):
     """Create job id prefix with a consistent naming convention based on the
     success file path to give context of what caused this job to be submitted.
     the rules for success file name -> job id are:
@@ -885,13 +885,21 @@ def create_job_id(success_file_path):
     Note, gcf-ingest- can be overridden with environment variable JOB_PREFIX
     3. uuid for uniqueness
     """
-    clean_job_id = os.getenv('JOB_PREFIX', constants.DEFAULT_JOB_PREFIX)
-    clean_job_id += re.compile(constants.NON_BQ_JOB_ID_REGEX).sub(
-        '_', success_file_path.replace('/', '-'))
-    # add uniqueness in case we have to "re-process" a success file that is
-    # republished (e.g. to fix a bad batch of data) or handle multiple load jobs
-    # for a single success file.
-    clean_job_id += str(uuid.uuid4())
+    if data_source_name and table:
+        # This code is reached if the user has set an explicit load_data_source
+        # key,value pair in the BQ_LOAD_CONFIG_FILENAME file.
+        clean_job_id = os.getenv('JOB_PREFIX', constants.DEFAULT_JOB_PREFIX)
+        clean_job_id += f'/{data_source_name}/{table.dataset_id}/{table.table_id}/'.replace(
+            '-', '_').replace('/', '-')
+        clean_job_id += str(uuid.uuid4())
+    else:
+        clean_job_id = os.getenv('JOB_PREFIX', constants.DEFAULT_JOB_PREFIX)
+        clean_job_id += re.compile(constants.NON_BQ_JOB_ID_REGEX).sub(
+            '_', success_file_path.replace('/', '-'))
+        # add uniqueness in case we have to "re-process" a success file that is
+        # republished (e.g. to fix a bad batch of data) or handle multiple load jobs
+        # for a single success file.
+        clean_job_id += str(uuid.uuid4())
     return clean_job_id[:1024]  # make sure job id isn't too long
 
 
@@ -956,28 +964,28 @@ def apply(
     bkt = success_blob.bucket
     gsurl = removesuffix(f"gs://{bkt.name}/{success_blob.name}",
                          constants.SUCCESS_FILENAME)
-
-    load_config, _ = gcs_path_to_load_config_and_batch(gcs_client, success_blob,
-                                                       bq_client.project)
+    load_config, data_source_name = gcs_path_to_load_config_and_batch(
+        gcs_client, success_blob, bq_client.project)
     table = get_table_from_load_job_config(load_config)
+    custom_job_id = None
+    if data_source_name:
+        custom_job_id = create_job_id(None, data_source_name, table)
     if lock_blob:
-        handle_bq_lock(gcs_client, lock_blob, job_id, table)
+        handle_bq_lock(gcs_client, lock_blob, custom_job_id or job_id, table)
     external_query_sql = look_for_config_in_parents(
         gcs_client, f"gs://{bkt.name}/{success_blob.name}", '*.sql')
     try:
-
         if external_query_sql:
             external_query(gcs_client, bq_client, gsurl, external_query_sql,
-                           job_id, table)
+                           custom_job_id or job_id, table)
             return
-
-        load_batches(gcs_client, bq_client, gsurl, load_config, job_id, table)
+        load_batches(gcs_client, bq_client, gsurl, load_config, custom_job_id or
+                     job_id, table)
         return
-
     except (google.api_core.exceptions.GoogleAPIError,
             google.api_core.exceptions.ClientError) as err:
         etype, value, _ = sys.exc_info()
-        msg = (f"failed to submit job {job_id} for {gsurl}: "
+        msg = (f"failed to submit job {custom_job_id or job_id} for {gsurl}: "
                f"{etype.__class__.__name__}: {value}")
         blob = storage.Blob.from_string(gsurl)
         table_prefix = get_table_prefix(gcs_client, blob)
