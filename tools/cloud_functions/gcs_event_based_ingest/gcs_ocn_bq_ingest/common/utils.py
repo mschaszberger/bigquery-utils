@@ -889,7 +889,7 @@ def create_job_id(success_file_path, data_source_name=None, table=None):
         # This code is reached if the user has set an explicit load_data_source
         # key,value pair in the BQ_LOAD_CONFIG_FILENAME file.
         clean_job_id = os.getenv('JOB_PREFIX', constants.DEFAULT_JOB_PREFIX)
-        clean_job_id += f'/{data_source_name}/{table.dataset_id}/{table.table_id}/'.replace(
+        clean_job_id += f'{data_source_name}/{table.dataset_id}/{table.table_id}/'.replace(
             '-', '_').replace('/', '-')
         clean_job_id += str(uuid.uuid4())
     else:
