@@ -891,6 +891,8 @@ def create_job_id(success_file_path, data_source_name=None, table=None):
         clean_job_id = os.getenv('JOB_PREFIX', constants.DEFAULT_JOB_PREFIX)
         clean_job_id += f'{data_source_name}/{table.dataset_id}/{table.table_id}/'.replace(
             '-', '_').replace('/', '-')
+        clean_job_id += re.compile(constants.NON_BQ_JOB_ID_REGEX).sub(
+            '_', success_file_path.replace('/', '-'))
         clean_job_id += str(uuid.uuid4())
     else:
         clean_job_id = os.getenv('JOB_PREFIX', constants.DEFAULT_JOB_PREFIX)
@@ -969,7 +971,8 @@ def apply(
     table = get_table_from_load_job_config(load_config)
     custom_job_id = None
     if data_source_name:
-        custom_job_id = create_job_id(None, data_source_name, table)
+        custom_job_id = create_job_id(success_blob.name, data_source_name,
+                                      table)
     if lock_blob:
         handle_bq_lock(gcs_client, lock_blob, custom_job_id or job_id, table)
     external_query_sql = look_for_config_in_parents(
