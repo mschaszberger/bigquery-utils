@@ -299,14 +299,6 @@ def gcs_destination_parquet_config(
         r"(?:[\d]{2})?/?"
         r"(?:[\d]{2})?/?"
         r"(?P<batch>[\d]{2})/?"  # batch
-        # r"^(?:[\w\-_0-9]+)/(?P<dataset>[\w\-_0-9\.]+)/"
-        # r"(?P<table>[\w\-_0-9]+)/?"
-        # r"(?:incremental|history)?/?"
-        # r"(?:[0-9]{4})?/?"
-        # r"(?:[0-9]{2})?/?"
-        # r"(?:[0-9]{2})?/?"
-        # r"(?:[0-9]{2})?/?"
-        # r"(?P<batch>[0-9]+)/?"
     )
     config_objs = []
     config_obj: storage.Blob = gcs_bucket.blob("/".join([
@@ -322,7 +314,6 @@ def gcs_destination_parquet_config(
                 "tableId": dest_partitioned_table.table_id
             },
             "destinationRegex": destination_regex,
-            "dataSourceName": "some-onprem-data-source"
         }))
     config_objs.append(config_obj)
     return config_objs
@@ -342,11 +333,11 @@ def gcs_destination_parquet_config_hive_partitioned(
     :return:
     """
     destination_regex = (
-        r"(?P<table>.*?)"  # ignore everything leading up to partition
-        r"(?:[\d]{4})?/?"
-        r"(?:[\d]{2})?/?"
-        r"(?:[\d]{2})?/?"
-        r"(?P<batch>[\d]{2})/?"  # batch
+        r"(?P<table>.*?)/"  # ignore everything leading up to partition
+        r"(?P<yyyy>[\d]{4})/"
+        r"(?P<mm>[\d]{2})/"
+        r"(?P<dd>[\d]{2})/"
+        r"(?P<hh>[\d]{2})/"
         # r"^(?:[\w\-_0-9]+)/(?P<dataset>[\w\-_0-9\.]+)/"
         # r"(?P<table>[\w\-_0-9]+)/?"
         # r"(?:incremental|history)?/?"
@@ -370,6 +361,7 @@ def gcs_destination_parquet_config_hive_partitioned(
                 "tableId": dest_hive_partitioned_table.table_id
             },
             "destinationRegex": destination_regex,
+            "dataSourceName": "some-onprem-data-source"
         }))
     config_objs.append(config_obj)
     return config_objs

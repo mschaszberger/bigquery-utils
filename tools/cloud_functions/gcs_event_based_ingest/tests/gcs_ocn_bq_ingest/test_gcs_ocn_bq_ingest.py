@@ -19,6 +19,7 @@ from typing import Dict, Optional
 from unittest.mock import Mock
 
 import pytest
+from google.cloud import bigquery
 from google.cloud import storage
 
 import gcs_ocn_bq_ingest.common.constants
@@ -266,3 +267,18 @@ def test_triage_event_ordered(ordered_mock_env, mocker):
                                         enforce_ordering=enforce_ordering)
     monitor_mock.assert_called_once()
     apply_mock.assert_not_called()
+
+
+def test_create_job_id():
+    job_id = gcs_ocn_bq_ingest.common.utils.create_job_id(
+        "bucket/source/dataset/table/2021/06/22/01/_SUCCESS")
+    assert job_id.split('_SUCCESS')[
+        0] == 'gcf-ingest-bucket-source-dataset-table-2021-06-22-01-'
+
+
+def test_create_job_id_with_datasource_name_and_partition():
+    table = bigquery.Table.from_string("project.dataset.table$2021062201")
+    job_id = gcs_ocn_bq_ingest.common.utils.create_job_id(
+        "bucket/source/dataset/table/2021/06/22/01/_SUCCESS", "source", table)
+    job_id = '-'.join(job_id.split('-')[0:9])
+    assert job_id == 'gcf-ingest-source-dataset-table-2021-06-22-01'

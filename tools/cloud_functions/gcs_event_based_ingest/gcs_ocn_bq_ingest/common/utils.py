@@ -780,7 +780,7 @@ def wait_on_gcs_blob(gcs_client: storage.Client,
     return False
 
 
-def gcs_path_to_load_config_and_batch(
+def gcs_path_to_load_config_and_datasource_name(
     gcs_client: storage.Client, blob: storage.Blob,
     default_project: Optional[str]
 ) -> Tuple[bigquery.LoadJobConfig, Optional[str]]:
@@ -792,7 +792,7 @@ def gcs_path_to_load_config_and_batch(
        destinationTable dict)
        See: https://cloud.google.com/bigquery/docs/reference/rest/v2/Job#jobconfigurationload
             https://cloud.google.com/bigquery/docs/reference/rest/v2/TableReference
-    It will return a tuple containing the BigQuery load job config and a job_id if
+    It will return a tuple containing the BigQuery load job config and a datasource name if
     it is provided inside the BQ_LOAD_CONFIG_FILENAME file.
     Args:
         gcs_client: storage.Client
@@ -885,14 +885,20 @@ def create_job_id(success_file_path, data_source_name=None, table=None):
     Note, gcf-ingest- can be overridden with environment variable JOB_PREFIX
     3. uuid for uniqueness
     """
-    if data_source_name and table:
+    if data_source_name and table and len(table.table_id.split('$')) == 2:
         # This code is reached if the user has set an explicit load_data_source
-        # key,value pair in the BQ_LOAD_CONFIG_FILENAME file.
+        # key,value pair in the BQ_LOAD_CONFIG_FILENAME file and the GCS path has
+        # partition information.
+        partition_info = table.table_id.split('$')[1]
         clean_job_id = os.getenv('JOB_PREFIX', constants.DEFAULT_JOB_PREFIX)
-        clean_job_id += f'{data_source_name}/{table.dataset_id}/{table.table_id}/'.replace(
-            '-', '_').replace('/', '-')
-        clean_job_id += re.compile(constants.NON_BQ_JOB_ID_REGEX).sub(
-            '_', success_file_path.replace('/', '-'))
+        clean_job_id += (f'{data_source_name}/'
+                         f'{table.dataset_id}/'
+                         f'{table.table_id.split("$")[0]}/'
+                         f'{partition_info[0:4]}/'
+                         f'{partition_info[4:6]}/'
+                         f'{partition_info[6:8]}/'
+                         f'{partition_info[8:10]}/'.replace('-', '_').replace(
+                             '/', '-').replace('$', ''))
         clean_job_id += str(uuid.uuid4())
     else:
         clean_job_id = os.getenv('JOB_PREFIX', constants.DEFAULT_JOB_PREFIX)
@@ -966,7 +972,7 @@ def apply(
     bkt = success_blob.bucket
     gsurl = removesuffix(f"gs://{bkt.name}/{success_blob.name}",
                          constants.SUCCESS_FILENAME)
-    load_config, data_source_name = gcs_path_to_load_config_and_batch(
+    load_config, data_source_name = gcs_path_to_load_config_and_datasource_name(
         gcs_client, success_blob, bq_client.project)
     table = get_table_from_load_job_config(load_config)
     custom_job_id = None
