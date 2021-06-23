@@ -835,8 +835,13 @@ def gcs_path_to_load_config_and_datasource_name(
                 f"did not match dataset and table in regex:"
                 f" {constants.DESTINATION_REGEX}") from KeyError
         partition = destination_details.get('partition')
-        year, month, day, hour = (destination_details.get(key, "")
+        # The f'{int(destination_details.get(key, "")):02}' logic below will
+        # pad the month, day, and hour with a zero if the value is only
+        # a single digit.
+        year, month, day, hour = (f'{int(destination_details.get(key, "")):02}'
+                                  if destination_details.get(key) else ""
                                   for key in ('yyyy', 'mm', 'dd', 'hh'))
+
         part_list = (year, month, day, hour)
         if not partition and any(part_list):
             partition = '$' + ''.join(part_list)

@@ -324,8 +324,8 @@ def gcs_destination_parquet_config_hive_partitioned(
         gcs_bucket, dest_dataset,
         dest_hive_partitioned_table) -> List[storage.Blob]:
     """
-    This tests that a load.json file with destinationTable specified is used
-    to load data.
+    This tests that a load.json file with destinationTable and destinationRegex
+    specified is used to load data.
 
     :param gcs_bucket:
     :param dest_dataset:
@@ -359,6 +359,44 @@ def gcs_destination_parquet_config_hive_partitioned(
                 "projectId": dest_hive_partitioned_table.project,
                 "datasetId": dest_hive_partitioned_table.dataset_id,
                 "tableId": dest_hive_partitioned_table.table_id
+            },
+            "destinationRegex": destination_regex,
+            "dataSourceName": "some-onprem-data-source"
+        }))
+    config_objs.append(config_obj)
+    return config_objs
+
+
+@pytest.fixture
+def gcs_destination_parquet_config_partitioned_alternate(
+        gcs_bucket, dest_dataset, dest_partitioned_table) -> List[storage.Blob]:
+    """
+    This tests that a load.json file with destinationTable and destinationRegex
+    specified is used to load data.
+
+    :param gcs_bucket:
+    :param dest_dataset:
+    :param dest_hive_partitioned_table:
+    :return:
+    """
+    destination_regex = (
+        r"(?P<table>.*?)/"  # ignore everything leading up to partition
+        r"year=(?P<yyyy>[\d]{4})/"
+        r"month=(?P<mm>[\d]{1,2})/"
+        r"day=(?P<dd>[\d]{1,2})/"
+        r"hr=(?P<hh>[\d]{1,2})/")
+    config_objs = []
+    config_obj: storage.Blob = gcs_bucket.blob("/".join([
+        "_config",
+        "load.json",
+    ]))
+    config_obj.upload_from_string(
+        json.dumps({
+            "sourceFormat": "PARQUET",
+            "destinationTable": {
+                "projectId": dest_partitioned_table.project,
+                "datasetId": dest_partitioned_table.dataset_id,
+                "tableId": dest_partitioned_table.table_id
             },
             "destinationRegex": destination_regex,
             "dataSourceName": "some-onprem-data-source"
@@ -493,7 +531,7 @@ def gcs_split_path_partitioned_parquet_data(
 
 
 @pytest.fixture
-def gcs_split_path_batched_parquet_data(
+def gcs_split_path_partitioned_parquet_data_alternate(
         gcs_bucket, dest_dataset, dest_partitioned_table) -> List[storage.Blob]:
     data_objs = []
     for partition in ["$2017041101", "$2017041102"]:
@@ -504,11 +542,10 @@ def gcs_split_path_batched_parquet_data(
                 "foo",
                 "bar",
                 "baz",
-                partition[1:5],  # year
-                partition[5:7],  # month
-                partition[7:9],  # day
-                partition[9:],  # batch
-                "hive_part_column=9999",
+                f"year={partition[1:5]}",  # year
+                f"month={partition[5:7]}",  # month
+                f"day={partition[7:9]}",  # day
+                f"hr={partition[9:]}",  # batch
                 test_file
             ]))
             data_obj.upload_from_filename(
@@ -520,10 +557,10 @@ def gcs_split_path_batched_parquet_data(
             "foo",
             "bar",
             "baz",
-            partition[1:5],  # year
-            partition[5:7],  # month
-            partition[7:9],  # day
-            partition[9:],  # batch
+            f"year={partition[1:5]}",  # year
+            f"month={partition[5:7]}",  # month
+            f"day={partition[7:9]}",  # day
+            f"hr={partition[9:]}",  # batch
             "_SUCCESS"
         ]))
         data_obj.upload_from_filename(
