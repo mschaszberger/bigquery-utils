@@ -895,15 +895,22 @@ def create_job_id(success_file_path, data_source_name=None, table=None):
         # key,value pair in the BQ_LOAD_CONFIG_FILENAME file and the GCS path has
         # partition information.
         partition_info = table.table_id.split('$')[1]
-        clean_job_id = os.getenv('JOB_PREFIX', constants.DEFAULT_JOB_PREFIX)
-        clean_job_id += (f'{data_source_name}/'
-                         f'{table.dataset_id}/'
-                         f'{table.table_id.split("$")[0]}/'
-                         f'{partition_info[0:4]}/'
-                         f'{partition_info[4:6]}/'
-                         f'{partition_info[6:8]}/'
-                         f'{partition_info[8:10]}/'.replace('-', '_').replace(
-                             '/', '-').replace('$', ''))
+        clean_job_id = (f'{data_source_name}/'
+                        f'{table.dataset_id}/'
+                        f'{table.table_id.split("$")[0]}/')
+        if len(partition_info) >= 4:
+            clean_job_id += f'{partition_info[0:4]}/'
+        if len(partition_info) >= 6:
+            clean_job_id += f'{partition_info[4:6]}/'
+        if len(partition_info) >= 8:
+            clean_job_id += f'{partition_info[6:8]}/'
+        if len(partition_info) == 10:
+            clean_job_id += f'{partition_info[8:10]}/'
+        clean_job_id = clean_job_id.replace('-',
+                                            '_').replace('/',
+                                                         '-').replace('$', '')
+        clean_job_id = os.getenv('JOB_PREFIX',
+                                 constants.DEFAULT_JOB_PREFIX) + clean_job_id
         clean_job_id += str(uuid.uuid4())
     else:
         clean_job_id = os.getenv('JOB_PREFIX', constants.DEFAULT_JOB_PREFIX)

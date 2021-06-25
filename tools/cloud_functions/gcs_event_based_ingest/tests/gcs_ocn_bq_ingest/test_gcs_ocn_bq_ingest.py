@@ -282,3 +282,11 @@ def test_create_job_id_with_datasource_name_and_partition():
         "bucket/source/dataset/table/2021/06/22/01/_SUCCESS", "source", table)
     job_id = '-'.join(job_id.split('-')[0:9])
     assert job_id == 'gcf-ingest-source-dataset-table-2021-06-22-01'
+
+
+def test_create_job_id_with_datasource_name_and_partition_missing_hour():
+    table = bigquery.Table.from_string("project.dataset.table$20210622")
+    job_id = gcs_ocn_bq_ingest.common.utils.create_job_id(
+        "bucket/source/dataset/table/2021/06/22/_SUCCESS", "source", table)
+    job_id = '-'.join(job_id.split('-')[0:8])
+    assert job_id == 'gcf-ingest-source-dataset-table-2021-06-22'
