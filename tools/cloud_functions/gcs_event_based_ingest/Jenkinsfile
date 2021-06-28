@@ -1,0 +1,11 @@
+pipeline {
+    agent { any { image 'python:3.5.1' } }
+    stages {
+        stage('build') {
+            steps {
+                sh 'cd tools/cloud_functions/gcs_event_based_ingest'
+                sh 'python -m pip install -r requirements-dev.txt'
+            }
+        }
+    }
+}
