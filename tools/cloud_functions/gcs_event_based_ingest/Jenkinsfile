@@ -6,8 +6,6 @@ pipeline {
                 sh 'ls -la'
             }
         }
-    }
-    stages {
         stage('build') {
             steps {
                 sh 'python3 -m pip install -r tools/cloud_functions/gcs_event_based_ingest/requirements-dev.txt'
