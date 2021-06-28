@@ -3,8 +3,7 @@ pipeline {
     stages {
         stage('build') {
             steps {
-                sh 'cd tools/cloud_functions/gcs_event_based_ingest'
-                sh 'python -m pip install -r requirements-dev.txt'
+                sh 'python -m pip install -r tools/cloud_functions/gcs_event_based_ingest/requirements-dev.txt'
             }
         }
     }
