@@ -17,3 +17,7 @@ pipeline {
             steps {
                 sh '-c python3 -m pytest tests -m IT'
             }
+        }
+    }
+}
+
