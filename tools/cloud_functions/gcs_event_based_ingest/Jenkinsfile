@@ -6,7 +6,7 @@ pipeline {
                 sh 'rm -rf bigquery-utils # Used when building on controller node'
                 sh 'git clone https://github.com/mschaszberger/bigquery-utils.git'
                 sh 'python3 --version'
-                sh 'python3 -m pip install --user -r bigquery-utils/tools/cloud_functions/gcs_event_based_ingest/requirements-dev.txt'
+                sh 'python3 -m GRPC_PYTHON_BUILD_SYSTEM_OPENSSL=1 GRPC_PYTHON_BUILD_SYSTEM_ZLIB=1 pip install --user -r bigquery-utils/tools/cloud_functions/gcs_event_based_ingest/requirements-dev.txt'
             }
         }
         stage('unit_tests') {
