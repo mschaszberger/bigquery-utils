@@ -1,5 +1,5 @@
 pipeline {
-    agent { any { image 'python:3.8' } }
+    agent { docker { image '3.7-buster' } }
     stages {
         stage('install_requirements') {
             steps {
