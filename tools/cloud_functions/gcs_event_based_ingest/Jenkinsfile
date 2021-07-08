@@ -7,9 +7,10 @@ pipeline {
                 sh 'git clone https://github.com/mschaszberger/bigquery-utils.git'
                 sh 'python3 -m pip install --upgrade pip'
                 sh 'python3 -m pip install --user -r bigquery-utils/tools/cloud_functions/gcs_event_based_ingest/requirements-dev.txt'
+                dir(tools/cloud_functions/gcs_event_based_ingest/)
             }
         }
-        dir(tools/cloud_functions/gcs_event_based_ingest/){
+        
         stage('unit_tests') {
             steps {
                 sh 'python3 -m pytest tests -m "not IT"'
@@ -20,6 +21,6 @@ pipeline {
                 sh 'python3 -m pytest tests -m IT'
             }
         }
-        }
+       
     }
 }
