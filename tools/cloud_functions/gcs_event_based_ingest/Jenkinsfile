@@ -9,9 +9,9 @@ pipeline {
                 sh 'python3 -m pip install --user -r bigquery-utils/tools/cloud_functions/gcs_event_based_ingest/requirements-dev.txt'
             }
         }
+        dir(tools/cloud_functions/gcs_event_based_ingest/){
         stage('unit_tests') {
             steps {
-                sh 'cd tools/cloud_functions/gcs_event_based_ingest/'
                 sh 'python3 -m pytest tests -m "not IT"'
             }
         }
@@ -19,6 +19,7 @@ pipeline {
             steps {
                 sh 'python3 -m pytest tests -m IT'
             }
+        }
         }
     }
 }
