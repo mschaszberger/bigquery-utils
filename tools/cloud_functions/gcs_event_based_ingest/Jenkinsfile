@@ -11,12 +11,12 @@ pipeline {
         }
         stage('unit_tests') {
             steps {
-                sh '-c python3 -m pytest tests -m "not IT"'
+                sh 'python3 -m pytest tests -m "not IT"'
             }
         }
         stage('integration_tests') {
             steps {
-                sh '-c python3 -m pytest tests -m IT'
+                sh 'python3 -m pytest tests -m IT'
             }
         }
     }
