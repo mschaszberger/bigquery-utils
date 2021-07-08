@@ -5,7 +5,7 @@ pipeline {
             steps {
                 sh 'rm -rf bigquery-utils # Used when building on controller node'
                 sh 'git clone https://github.com/mschaszberger/bigquery-utils.git'
-                Python("-m pip install --upgrade pip")
+                sh 'python -m pip install --upgrade pip'
                 sh 'python3 -m pip install --user -r bigquery-utils/tools/cloud_functions/gcs_event_based_ingest/requirements-dev.txt'
             }
         }
