@@ -12,14 +12,14 @@ pipeline {
         
         stage('unit_tests') {
             steps {
-                dir(tools/cloud_functions/gcs_event_based_ingest/){
+                dir('tools/cloud_functions/gcs_event_based_ingest/'){
                     sh 'python3 -m pytest tests -m "not IT"'
                 }
             }
         }
         stage('integration_tests') {
             steps {
-                dir(tools/cloud_functions/gcs_event_based_ingest/){
+                dir('tools/cloud_functions/gcs_event_based_ingest/'){
                 sh 'python3 -m pytest tests -m IT'
                 }
             }
