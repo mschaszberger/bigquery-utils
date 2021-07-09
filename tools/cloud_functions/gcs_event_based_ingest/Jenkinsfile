@@ -26,7 +26,7 @@ pipeline {
         stage('integration_tests') {
             steps {
                 dir('tools/cloud_functions/gcs_event_based_ingest/'){
-                sh 'venv/bin/python3 -m pytest tests -m IT'
+                    sh 'venv/bin/python3 -m pytest tests -m IT'
                 }
             }
         }
