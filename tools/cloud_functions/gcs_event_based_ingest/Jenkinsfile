@@ -13,6 +13,7 @@ pipeline {
         stage('unit_tests') {
             steps {
                 dir('tools/cloud_functions/gcs_event_based_ingest/'){
+                    sh 'gcloud auth application-default login'
                     sh 'python3 -m pytest tests -m "not IT"'
                 }
             }
