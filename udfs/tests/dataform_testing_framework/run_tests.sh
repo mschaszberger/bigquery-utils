@@ -125,7 +125,7 @@ main() {
   # These variables will come from cloud build env
   #
   # local PROJECT_ID=
-  # local JS_BUCKET=
+  # local JS_BUCKET=gs://bqutil-lib/bq_js_libs
   # local SHORT_SHA=
 
   # Create an empty dataform.json file because Dataform requires
