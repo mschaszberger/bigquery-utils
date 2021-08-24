@@ -84,10 +84,12 @@ deploy_udfs(){
   local udfs_source_dir=$4
   local udfs_target_dir=$5
   mkdir -p "${udfs_target_dir}"/definitions
+  # Copy all UDF sources into the target dir to avoid modifying the source itself
+  cp -r "${udfs_source_dir}"/ "${udfs_target_dir}"/definitions/"${dataset_id}"
   # Temporarily rename test_cases.js to avoid deploying this file
-  mv "${udfs_source_dir}"/test_cases.js "${udfs_source_dir}"/test_cases.js.ignore
-  ln -sfn "${udfs_source_dir}"/ "${udfs_target_dir}"/definitions/"${dataset_id}"
-  replace_js_udf_bucket_placeholder "${udfs_source_dir}" "${js_bucket}"
+  mv "${udfs_target_dir}"/definitions/"${dataset_id}"/test_cases.js \
+     "${udfs_target_dir}"/definitions/"${dataset_id}"/test_cases.js.ignore
+  replace_js_udf_bucket_placeholder "${udfs_target_dir}"/definitions/"${dataset_id}" "${js_bucket}"
   generate_dataform_config_and_creds "${project_id}" "${dataset_id}" "${udfs_target_dir}"
   add_symbolic_dataform_dependencies "${udfs_target_dir}"
   if ! dataform run "${udfs_target_dir}"; then
@@ -98,7 +100,8 @@ deploy_udfs(){
     # exit 1
   fi
   # Restore test_cases.js once UDFs are deployed
-  mv "${udfs_source_dir}"/test_cases.js.ignore "${udfs_source_dir}"/test_cases.js
+  mv "${udfs_target_dir}"/definitions/"${dataset_id}"/test_cases.js.ignore \
+     "${udfs_target_dir}"/definitions/"${dataset_id}"/test_cases.js
 }
 
 test_udfs(){
@@ -122,7 +125,7 @@ main() {
   # These variables will come from cloud build env
   #
   # local PROJECT_ID=
-  # local JS_BUCKET=
+  # local JS_BUCKET=gs://bqutil-lib/bq_js_libs
   # local SHORT_SHA=
 
   # Create an empty dataform.json file because Dataform requires
@@ -143,7 +146,7 @@ main() {
     # SHORT_SHA environment variable below comes from
     # cloud build when the trigger originates from a github commit.
     if [[ $dataset_id == 'community' ]]; then
-      # Deploy all UDFs in community folder into
+      # Deploy all UDFs in the community folder
       deploy_udfs \
         "${PROJECT_ID}" \
         "${JS_BUCKET}" \
@@ -157,6 +160,7 @@ main() {
         "$(pwd)"/../../community \
         "${dataset_id}"_test
     else
+      # Deploy all UDFs in the migration folder
       deploy_udfs \
         "${PROJECT_ID}" \
         "${JS_BUCKET}" \
