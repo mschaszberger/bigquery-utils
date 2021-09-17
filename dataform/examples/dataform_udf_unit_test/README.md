@@ -1,6 +1,6 @@
 # Dataform UDF Unit Testing Example
-
-## How to run this example
+###### For more information about unit testing your UDFs, check out this [Google Cloud blog post](https://cloud.google.com/blog/)!
+## How To Run This Example
 
 1. Clone this repo (click below to clone in Cloud Shell) \
    [![Open in Cloud Shell](http://gstatic.com/cloudssh/images/open-btn.svg)](https://console.cloud.google.com/cloudshell/editor?cloudshell_git_repo=https%3A%2F%2Fgithub.com%2FGoogleCloudPlatform%2Fbigquery-utils.git&cloudshell_workspace=dataform/examples/dataform_assertion_unit_test&cloudshell_tutorial=README.md)
@@ -20,7 +20,7 @@
     ```bash
     dataform test
     ```
-## How to modify the example for your own UDFs
+## How To Modify The Example For Your Own UDFs
 1. Create environment variables for the path to your Dataform directory and your BigQuery project ID, then create your \
    Dataform project using these environment variables:
    ```bash
