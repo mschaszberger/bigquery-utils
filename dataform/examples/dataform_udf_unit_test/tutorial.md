@@ -9,7 +9,6 @@ how to unit test your own UDFs.
 
 Click the **Start** button to move to the next step.
 
-
 # Run the example to unit test UDFs
 
 Now that you've already downloaded the example to Cloud Shell, you're ready to install Dataform and run the commands to get this example up and running. Follow these steps to run this example:
@@ -40,7 +39,6 @@ Congratulations, you successfully ran the example!
 
 To learn how to modify this example to unit test your own UDFs, click **Next**.
 
-
 # Run Your Own UDF Unit Tests
 
 ### 1. Create environment variables for the path to your Dataform directory and your BigQuery project ID:
@@ -51,6 +49,7 @@ DATAFORM_DIR=<name-of-your-Dataform-project>
 ```bash
 PROJECT_ID=<your-bigquery-project-id>
 ```
+
 ### 2. Create your Dataform project:
 ```bash
 dataform init bigquery $DATAFORM_DIR --default-database $PROJECT_ID
@@ -74,7 +73,6 @@ echo "const {generate_udf_test} = unit_test_utils;" > $DATAFORM_DIR/definitions/
 **Note**: This is the main file you'll be editing. You will be supplying the input(s) and expected outputs of your UDFs in this file.
 
 ### 6. Add a new invocation of the generate_udf_test() function for the UDF you want to test:
-
 ```
 generate_udf_test("YOUR_UDF_NAME", [  
       { // JS Object for test case #1
